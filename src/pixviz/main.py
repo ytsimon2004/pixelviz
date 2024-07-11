@@ -6,9 +6,10 @@ from PyQt6.QtCore import Qt, QUrl, QRectF, pyqtSignal, QTimer
 from PyQt6.QtGui import QTextCursor, QWheelEvent, QPen, QImage, QColor, QPixmap, QPainter
 from PyQt6.QtMultimedia import QMediaPlayer, QAudioOutput
 from PyQt6.QtMultimediaWidgets import QGraphicsVideoItem
-from PyQt6.QtWidgets import QApplication, QMainWindow, QPushButton, QFileDialog, QLabel, QVBoxLayout, QWidget, \
-    QHBoxLayout, QGraphicsView, QGraphicsScene, QSlider, QTextEdit, QGraphicsRectItem, QSplitter, QDialog, QLineEdit, \
-    QRadioButton, QButtonGroup
+from PyQt6.QtWidgets import (
+    QApplication, QMainWindow, QPushButton, QFileDialog, QLabel, QVBoxLayout, QWidget, QHBoxLayout, QGraphicsView,
+    QGraphicsScene, QSlider, QTextEdit, QGraphicsRectItem, QSplitter, QDialog, QLineEdit, QRadioButton, QButtonGroup
+)
 
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
@@ -17,8 +18,8 @@ from pixviz.output import RoiType
 
 
 class SamplingRateDialog(QDialog):
-    def __init__(self, parent=None):
-        super().__init__(parent)
+    def __init__(self):
+        super().__init__()
         self.setWindowTitle("Set Sampling Rate")
 
         self.layout = QVBoxLayout()
@@ -255,11 +256,13 @@ class PlotView(QWidget):
 
 
 class VideoLoaderApp(QMainWindow):
-    layout: QVBoxLayout
+    layout: QHBoxLayout
+    main_splitter: QSplitter
     splitter: QSplitter
 
+    progress_bar_layout: QVBoxLayout
+
     load_button: QPushButton
-    video_label: QLabel
 
     video_view: VideoGraphicsView
     media_player: QMediaPlayer
@@ -317,8 +320,13 @@ class VideoLoaderApp(QMainWindow):
         # Create a central widget and set the layout
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
-        self.layout = QVBoxLayout()
+        # self.layout = QVBoxLayout()
+        self.layout = QHBoxLayout()
         central_widget.setLayout(self.layout)
+
+        # Create the main splitter to hold message log and media components
+        self.main_splitter = QSplitter(Qt.Orientation.Horizontal)
+        self.layout.addWidget(self.main_splitter)
 
     def button_load_video(self):
         """Create a button to load the video file"""
@@ -326,22 +334,18 @@ class VideoLoaderApp(QMainWindow):
         self.load_button.clicked.connect(self.load_video)
         self.layout.addWidget(self.load_button, alignment=Qt.AlignmentFlag.AlignTop)
 
-        # Label to show the selected file path
-        self.video_label = QLabel("No video loaded")
-        self.layout.addWidget(self.video_label, alignment=Qt.AlignmentFlag.AlignTop)
-
     def load_video(self):
         file_dialog = QFileDialog(self)
         file_dialog.setNameFilter("Video Files (*.mp4 *.avi *.mov *.mkv)")
         file_dialog.setFileMode(QFileDialog.FileMode.ExistingFile)
+
         if file_dialog.exec():
             file_path = file_dialog.selectedFiles()[0]
-            self.video_label.setText(f"Loaded Video: {file_path}")
             self.media_player.setSource(QUrl.fromLocalFile(file_path))
             self.log_message(f"Loaded Video: {file_path}")
 
             # Prompt for the sampling rate
-            dialog = SamplingRateDialog(self)
+            dialog = SamplingRateDialog()
             if dialog.exec() == QDialog.DialogCode.Accepted:
                 self.sampling_rate = dialog.get_sampling_rate()
                 self.log_message(f"Sampling rate set to: {self.sampling_rate} frames per second")
@@ -368,6 +372,9 @@ class VideoLoaderApp(QMainWindow):
         self.video_view.set_media_player(self.media_player)
 
         self.video_view.roi_average_signal.connect(self.update_plot)
+
+        # Add the splitter to the main splitter
+        self.main_splitter.addWidget(self.splitter)
 
     def control_media_player(self):
         self.media_player.durationChanged.connect(self.update_duration)
@@ -431,7 +438,9 @@ class VideoLoaderApp(QMainWindow):
         self.progress_bar = QSlider(Qt.Orientation.Horizontal)
         self.progress_bar.setRange(0, 100)
         self.progress_bar.sliderMoved.connect(self.set_position)
-        self.layout.addWidget(self.progress_bar)
+
+        self.progress_bar_layout = QVBoxLayout()
+        self.progress_bar_layout.addWidget(self.progress_bar)
 
     def setup_frame_label(self):
         self.frame_label = QLabel("Frame: 0")
@@ -445,7 +454,6 @@ class VideoLoaderApp(QMainWindow):
         self.update_frame_number(position)
 
     def update_frame_number(self, position):
-        # Assuming a frame rate of 30 fps
         frame_number = int((position / 1000.0) * self.sampling_rate)
         self.frame_label.setText(f"Frame: {frame_number}")
 
@@ -466,7 +474,7 @@ class VideoLoaderApp(QMainWindow):
             self.media_player.setPosition(int(new_position))
 
     def process_frame(self):
-        self.video_view.process_frame()  # TODO
+        self.video_view.process_frame()
 
     def show_roi_settings_dialog(self):
         dialog = RoiSettingsDialog(self)
@@ -478,12 +486,13 @@ class VideoLoaderApp(QMainWindow):
     # Message Log #
     # =========== #
 
-    def setup_message_log(self):
+    def setup_message_log(self) -> None:
         self.message_log = QTextEdit()
         self.message_log.setReadOnly(True)
-        self.layout.addWidget(self.message_log, alignment=Qt.AlignmentFlag.AlignTop)
+        self.main_splitter.addWidget(self.message_log)
+        self.main_splitter.setStretchFactor(0, 1)
 
-    def log_message(self, message):
+    def log_message(self, message: str) -> None:
         self.message_log.append(message)
         self.message_log.moveCursor(QTextCursor.MoveOperation.End)
 
@@ -510,6 +519,10 @@ class VideoLoaderApp(QMainWindow):
         self.plot_view = PlotView()
         self.splitter.addWidget(self.plot_view)  # Add plot view to the splitter
         self.splitter.setStretchFactor(1, 1)  # Make plot view take less space initially
+
+        # Add the progress bar layout to the splitter
+        self.splitter.addWidget(QWidget())
+        self.splitter.widget(2).setLayout(self.progress_bar_layout)
 
     def update_plot(self, value):
         self.plot_view.update_plot(value)
