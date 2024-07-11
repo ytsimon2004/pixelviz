@@ -123,10 +123,23 @@ class VideoGraphicsView(QGraphicsView):
         #
         self.media_player = None
 
+        # Frame label
+        self.frame_label = QLabel("Frame: 0")
+        self.frame_label.setStyleSheet("color: red; font-weight: bold;")
+        self.frame_label.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignRight)
+        self.frame_label.setMargin(10)
+        self.frame_label.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        self.frame_label_layout = QVBoxLayout()
+        self.frame_label_layout.addWidget(self.frame_label)
+        self.frame_label_layout.addStretch()
+        self.frame_label_widget = QWidget()
+        self.frame_label_widget.setLayout(self.frame_label_layout)
+        self.frame_label_widget.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        self.scene().addWidget(self.frame_label_widget)
+
     def set_media_player(self, media_player: QMediaPlayer):
         media_player.setVideoOutput(self.video_item)
         self.media_player = media_player
-        # self.media_player.positionChanged.connect(self.process_frame)
 
     def wheelEvent(self, event: QWheelEvent):
         if event.angleDelta().y() > 0:
@@ -270,7 +283,6 @@ class VideoLoaderApp(QMainWindow):
     audio_output: QAudioOutput
 
     progress_bar: QSlider
-    frame_label: QLabel
     message_log: QTextEdit
 
     play_button: QPushButton
@@ -298,7 +310,6 @@ class VideoLoaderApp(QMainWindow):
 
         #
         self.setup_progress_bar()
-        self.setup_frame_label()
         self.setup_message_log()
 
         #
@@ -320,7 +331,7 @@ class VideoLoaderApp(QMainWindow):
         # Create a central widget and set the layout
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
-        # self.layout = QVBoxLayout()
+
         self.layout = QHBoxLayout()
         central_widget.setLayout(self.layout)
 
@@ -442,10 +453,6 @@ class VideoLoaderApp(QMainWindow):
         self.progress_bar_layout = QVBoxLayout()
         self.progress_bar_layout.addWidget(self.progress_bar)
 
-    def setup_frame_label(self):
-        self.frame_label = QLabel("Frame: 0")
-        self.layout.addWidget(self.frame_label, alignment=Qt.AlignmentFlag.AlignTop)
-
     def update_duration(self, duration):
         self.progress_bar.setRange(0, duration)
 
@@ -455,7 +462,7 @@ class VideoLoaderApp(QMainWindow):
 
     def update_frame_number(self, position):
         frame_number = int((position / 1000.0) * self.sampling_rate)
-        self.frame_label.setText(f"Frame: {frame_number}")
+        self.video_view.frame_label.setText(f"Frame: {frame_number}")
 
     def set_position(self, position):
         self.media_player.setPosition(position)
