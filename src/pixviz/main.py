@@ -1,18 +1,109 @@
 import sys
+from typing import Literal
 
-from PyQt6.QtCore import Qt, QUrl, QRectF, pyqtSignal
+import numpy as np
+from PyQt6.QtCore import Qt, QUrl, QRectF, pyqtSignal, QTimer
 from PyQt6.QtGui import QTextCursor, QWheelEvent, QPen, QImage, QColor, QPixmap, QPainter
-from PyQt6.QtMultimedia import QMediaPlayer, QAudioOutput, QVideoSink, QVideoFrame
+from PyQt6.QtMultimedia import QMediaPlayer, QAudioOutput
 from PyQt6.QtMultimediaWidgets import QGraphicsVideoItem
 from PyQt6.QtWidgets import QApplication, QMainWindow, QPushButton, QFileDialog, QLabel, QVBoxLayout, QWidget, \
-    QHBoxLayout, QGraphicsView, QGraphicsScene, QSlider, QTextEdit, QGraphicsRectItem, QSplitter
+    QHBoxLayout, QGraphicsView, QGraphicsScene, QSlider, QTextEdit, QGraphicsRectItem, QSplitter, QDialog, QLineEdit, \
+    QRadioButton, QButtonGroup
 
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
 
+from pixviz.output import RoiType
+
+
+class SamplingRateDialog(QDialog):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Set Sampling Rate")
+
+        self.layout = QVBoxLayout()
+
+        self.label = QLabel("Enter the sampling rate (frames per second):")
+        self.layout.addWidget(self.label)
+
+        self.input = QLineEdit()
+        self.layout.addWidget(self.input)
+
+        self.button_box = QHBoxLayout()
+
+        self.ok_button = QPushButton("OK")
+        self.ok_button.clicked.connect(self.accept)
+        self.button_box.addWidget(self.ok_button)
+
+        self.cancel_button = QPushButton("Cancel")
+        self.cancel_button.clicked.connect(self.reject)
+        self.button_box.addWidget(self.cancel_button)
+
+        self.layout.addLayout(self.button_box)
+        self.setLayout(self.layout)
+
+    def get_sampling_rate(self) -> float:
+        return float(self.input.text())
+
+
+class RoiSettingsDialog(QDialog):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("ROI Settings")
+
+        self.layout = QVBoxLayout()
+
+        self.name_label = QLabel("Enter ROI name:")
+        self.layout.addWidget(self.name_label)
+
+        self.name_input = QLineEdit()
+        self.layout.addWidget(self.name_input)
+
+        self.method_label = QLabel("Select pixel calculation method:")
+        self.layout.addWidget(self.method_label)
+
+        self.mean_button = QRadioButton("Mean")
+        self.median_button = QRadioButton("Median")
+
+        self.button_group = QButtonGroup(self)
+        self.button_group.addButton(self.mean_button)
+        self.button_group.addButton(self.median_button)
+
+        self.layout.addWidget(self.mean_button)
+        self.layout.addWidget(self.median_button)
+
+        self.button_box = QHBoxLayout()
+
+        self.ok_button = QPushButton("OK")
+        self.ok_button.clicked.connect(self.accept)
+        self.button_box.addWidget(self.ok_button)
+
+        self.cancel_button = QPushButton("Cancel")
+        self.cancel_button.clicked.connect(self.reject)
+        self.button_box.addWidget(self.cancel_button)
+
+        self.layout.addLayout(self.button_box)
+        self.setLayout(self.layout)
+
+    def get_calculated_func(self) -> Literal['mean', 'median']:
+        if self.mean_button.isChecked():
+            return 'mean'
+        elif self.median_button.isChecked():
+            return 'median'
+
+    def get_roi_type(self) -> RoiType:
+        return RoiType(self.name_input.text(), self.get_calculated_func())
+
 
 class VideoGraphicsView(QGraphicsView):
     roi_average_signal = pyqtSignal(float)
+    """Signal to emit the averaged pixel value"""
+
+    roi_complete_signal = pyqtSignal()
+    """Signal to emit when ROI is completed"""
+
+    roi_start_signal = pyqtSignal()
+    """Signal to emit when ROI drawing starts"""
 
     def __init__(self):
         super().__init__()
@@ -34,7 +125,7 @@ class VideoGraphicsView(QGraphicsView):
     def set_media_player(self, media_player: QMediaPlayer):
         media_player.setVideoOutput(self.video_item)
         self.media_player = media_player
-        self.media_player.positionChanged.connect(self.process_frame)
+        # self.media_player.positionChanged.connect(self.process_frame)
 
     def wheelEvent(self, event: QWheelEvent):
         if event.angleDelta().y() > 0:
@@ -56,6 +147,7 @@ class VideoGraphicsView(QGraphicsView):
 
     def mousePressEvent(self, event):
         if self.drawing_roi:
+            self.roi_start_signal.emit()
             self.roi_start_pos = self.mapToScene(event.pos())
             if self.roi_rect_item is None:
                 self.roi_rect_item = QGraphicsRectItem()
@@ -72,6 +164,7 @@ class VideoGraphicsView(QGraphicsView):
         if self.drawing_roi:
             self.drawing_roi = False
             self.roi_start_pos = None
+            self.roi_complete_signal.emit()
 
     def start_drawing_roi(self):
         self.drawing_roi = True
@@ -80,14 +173,21 @@ class VideoGraphicsView(QGraphicsView):
             self.scene().removeItem(self.roi_rect_item)
             self.roi_rect_item = None
 
-    def process_frame(self):
+    def process_frame(self, calculate_func: str = 'mean'):
         if self.roi_rect_item:
             image = self.grab_frame()
             if image:
                 roi_rect = self.roi_rect_item.rect().toRect()
                 cropped_image = image.copy(roi_rect)
-                average_value = self.calculate_average_pixel_value(cropped_image)
-                self.roi_average_signal.emit(average_value)
+
+                if calculate_func == 'mean':
+                    calc_pixel = self.calculate_average_pixel_value(cropped_image)
+                elif calculate_func == 'median':
+                    calc_pixel = self.calculate_median_pixel_value(cropped_image)
+                else:
+                    raise KeyboardInterrupt(f'unknown calculation method: {calculate_func}!')
+
+                self.roi_average_signal.emit(calc_pixel)
 
     def grab_frame(self):
         # Grab the current frame from the video_item
@@ -111,6 +211,19 @@ class VideoGraphicsView(QGraphicsView):
                 total_intensity += intensity
 
         return total_intensity / total_pixels
+
+    @staticmethod
+    def calculate_median_pixel_value(image: QImage):
+        intensities = []
+        for x in range(image.width()):
+            for y in range(image.height()):
+                pixel = QColor(image.pixel(x, y))
+                intensity = (pixel.red() + pixel.green() + pixel.blue()) / 3
+                intensities.append(intensity)
+
+        if intensities:
+            return np.median(intensities)
+        return 0
 
 
 class PlotView(QWidget):
@@ -169,6 +282,10 @@ class VideoLoaderApp(QMainWindow):
         super().__init__()
 
         #
+        self.sampling_rate: float | None = None
+        self.roi: RoiType | None = None
+
+        #
         self.setup_windows()
 
         #
@@ -190,9 +307,12 @@ class VideoLoaderApp(QMainWindow):
         #
         self.setup_plot_view()
 
+        self.timer = QTimer()
+        self.timer.timeout.connect(self.process_frame)
+
     def setup_windows(self):
         self.setWindowTitle("Video Loader")
-        self.setGeometry(100, 100, 1200, 600)
+        self.setGeometry(100, 100, 1200, 800)
 
         # Create a central widget and set the layout
         central_widget = QWidget()
@@ -220,6 +340,13 @@ class VideoLoaderApp(QMainWindow):
             self.media_player.setSource(QUrl.fromLocalFile(file_path))
             self.log_message(f"Loaded Video: {file_path}")
 
+            # Prompt for the sampling rate
+            dialog = SamplingRateDialog(self)
+            if dialog.exec() == QDialog.DialogCode.Accepted:
+                self.sampling_rate = dialog.get_sampling_rate()
+                self.log_message(f"Sampling rate set to: {self.sampling_rate} frames per second")
+                self.timer.start(int(1000 // self.sampling_rate))
+
     # ========== #
     # Video View #
     # ========== #
@@ -227,6 +354,9 @@ class VideoLoaderApp(QMainWindow):
     def setup_media_player(self):
         """Video view for playing the video"""
         self.video_view = VideoGraphicsView()
+        self.video_view.roi_complete_signal.connect(self.show_roi_settings_dialog)
+        self.video_view.roi_start_signal.connect(self.pause_video)
+        self.video_view.roi_complete_signal.connect(self.play_video)
 
         # Use QSplitter to allow resizing
         self.splitter = QSplitter(Qt.Orientation.Vertical)
@@ -316,17 +446,15 @@ class VideoLoaderApp(QMainWindow):
 
     def update_frame_number(self, position):
         # Assuming a frame rate of 30 fps
-        frame_rate = 30.0
-        frame_number = int((position / 1000.0) * frame_rate)
+        frame_number = int((position / 1000.0) * self.sampling_rate)
         self.frame_label.setText(f"Frame: {frame_number}")
 
     def set_position(self, position):
         self.media_player.setPosition(position)
 
     def keyPressEvent(self, event):
-        frame_rate = 30.0
         current_position = self.media_player.position()
-        frame_duration = 1000.0 / frame_rate  # duration of one frame in milliseconds
+        frame_duration = 1000.0 / self.sampling_rate  # duration of one frame in milliseconds
 
         if event.key() == Qt.Key.Key_Right:
             self.log_message("Right arrow key pressed")
@@ -336,6 +464,15 @@ class VideoLoaderApp(QMainWindow):
             self.log_message("Left arrow key pressed")
             new_position = current_position - (10 * frame_duration)
             self.media_player.setPosition(int(new_position))
+
+    def process_frame(self):
+        self.video_view.process_frame()  # TODO
+
+    def show_roi_settings_dialog(self):
+        dialog = RoiSettingsDialog(self)
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            self.roi = dialog.get_roi_type()
+            self.log_message(f"ROI name: {self.roi.name}, Calculation method: {self.roi.function}")
 
     # =========== #
     # Message Log #
@@ -365,9 +502,9 @@ class VideoLoaderApp(QMainWindow):
     def start_drawing_roi(self):
         self.video_view.start_drawing_roi()
 
-    # =========== #
-    # Plot View   #
-    # =========== #
+    # ========== #
+    # Plot View  #
+    # ========== #
 
     def setup_plot_view(self):
         self.plot_view = PlotView()
