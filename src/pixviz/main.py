@@ -144,20 +144,23 @@ class VideoLoaderApp(QMainWindow):
         self.media_player.pause()
 
     def handle_media_status(self, status):
-        if status == QMediaPlayer.MediaStatus.EndOfMedia:
-            self.log_message("End of media reached")
-        elif status == QMediaPlayer.MediaStatus.InvalidMedia:
-            self.log_message("Invalid media")
-        elif status == QMediaPlayer.MediaStatus.NoMedia:
-            self.log_message("No media loaded")
-        elif status == QMediaPlayer.MediaStatus.LoadingMedia:
-            self.log_message("Loading media...")
-        elif status == QMediaPlayer.MediaStatus.LoadedMedia:
-            self.log_message("Media loaded")
-        elif status == QMediaPlayer.MediaStatus.BufferedMedia:
-            self.log_message("Media buffered")
-        elif status == QMediaPlayer.MediaStatus.StalledMedia:
-            self.log_message("Media playback stalled")
+        match status:
+            case QMediaPlayer.MediaStatus.EndOfMedia:
+                self.log_message("End of media reached")
+            case QMediaPlayer.MediaStatus.InvalidMedia:
+                self.log_message("Invalid media")
+            case QMediaPlayer.MediaStatus.NoMedia:
+                self.log_message("No media loaded")
+            case QMediaPlayer.MediaStatus.LoadingMedia:
+                self.log_message("Loading media...")
+            case QMediaPlayer.MediaStatus.LoadedMedia:
+                self.log_message("Media loaded")
+            case QMediaPlayer.MediaStatus.BufferedMedia:
+                self.log_message("Media buffered")
+            case QMediaPlayer.MediaStatus.StalledMedia:
+                self.log_message("Media playback stalled")
+            case _:
+                self.log_message(f'unknown {status}')
 
     # ============ #
     # Audio output #
