@@ -1,7 +1,7 @@
 import sys
 
 from PyQt6.QtCore import Qt, QUrl, QRectF, pyqtSignal
-from PyQt6.QtGui import QTextCursor, QWheelEvent, QPen, QImage, QColor
+from PyQt6.QtGui import QTextCursor, QWheelEvent, QPen, QImage, QColor, QPixmap, QPainter
 from PyQt6.QtMultimedia import QMediaPlayer, QAudioOutput, QVideoSink, QVideoFrame
 from PyQt6.QtMultimediaWidgets import QGraphicsVideoItem
 from PyQt6.QtWidgets import QApplication, QMainWindow, QPushButton, QFileDialog, QLabel, QVBoxLayout, QWidget, \
@@ -26,15 +26,15 @@ class VideoGraphicsView(QGraphicsView):
         self.roi_start_pos = None
         self.roi_rect_item = None
 
-        self.video_sink = QVideoSink()  # Video sink to capture frames
-        self.video_sink.videoFrameChanged.connect(self.process_frame)
+        self.pixmap_item = None
 
         #
         self.media_player = None
 
     def set_media_player(self, media_player: QMediaPlayer):
-        media_player.setVideoOutput(self.video_sink)
+        media_player.setVideoOutput(self.video_item)
         self.media_player = media_player
+        self.media_player.positionChanged.connect(self.process_frame)
 
     def wheelEvent(self, event: QWheelEvent):
         if event.angleDelta().y() > 0:
@@ -80,15 +80,22 @@ class VideoGraphicsView(QGraphicsView):
             self.scene().removeItem(self.roi_rect_item)
             self.roi_rect_item = None
 
-    def process_frame(self, frame: QVideoFrame):
-        if self.roi_rect_item and frame.isValid():
-            frame.map(QVideoFrame.MapMode.ReadOnly)
-            image = frame.toImage()
-            roi_rect = self.roi_rect_item.rect().toRect()
-            cropped_image = image.copy(roi_rect)
-            frame.unmap()
-            average_value = self.calculate_average_pixel_value(cropped_image)
-            self.roi_average_signal.emit(average_value)
+    def process_frame(self):
+        if self.roi_rect_item:
+            image = self.grab_frame()
+            if image:
+                roi_rect = self.roi_rect_item.rect().toRect()
+                cropped_image = image.copy(roi_rect)
+                average_value = self.calculate_average_pixel_value(cropped_image)
+                self.roi_average_signal.emit(average_value)
+
+    def grab_frame(self):
+        # Grab the current frame from the video_item
+        pixmap = QPixmap(self.video_item.boundingRect().size().toSize())
+        painter = QPainter(pixmap)
+        self.video_item.paint(painter, None, None)
+        painter.end()
+        return pixmap.toImage()
 
     @staticmethod
     def calculate_average_pixel_value(image: QImage):
