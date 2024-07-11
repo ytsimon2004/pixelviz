@@ -1,14 +1,19 @@
 import sys
 
-from PyQt6.QtCore import Qt, QUrl
-from PyQt6.QtGui import QTextCursor, QWheelEvent
-from PyQt6.QtMultimedia import QMediaPlayer, QAudioOutput
+from PyQt6.QtCore import Qt, QUrl, QRectF, pyqtSignal
+from PyQt6.QtGui import QTextCursor, QWheelEvent, QPen, QImage, QColor
+from PyQt6.QtMultimedia import QMediaPlayer, QAudioOutput, QVideoSink, QVideoFrame
 from PyQt6.QtMultimediaWidgets import QGraphicsVideoItem
 from PyQt6.QtWidgets import QApplication, QMainWindow, QPushButton, QFileDialog, QLabel, QVBoxLayout, QWidget, \
-    QHBoxLayout, QGraphicsView, QGraphicsScene, QSlider, QTextEdit
+    QHBoxLayout, QGraphicsView, QGraphicsScene, QSlider, QTextEdit, QGraphicsRectItem, QSplitter
+
+from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
+from matplotlib.figure import Figure
 
 
 class VideoGraphicsView(QGraphicsView):
+    roi_average_signal = pyqtSignal(float)
+
     def __init__(self):
         super().__init__()
         self.scale_factor: float = 1.0
@@ -16,8 +21,20 @@ class VideoGraphicsView(QGraphicsView):
         self.video_item = QGraphicsVideoItem()
         self.scene().addItem(self.video_item)
 
+        # ROI
+        self.drawing_roi: bool = False
+        self.roi_start_pos = None
+        self.roi_rect_item = None
+
+        self.video_sink = QVideoSink()  # Video sink to capture frames
+        self.video_sink.videoFrameChanged.connect(self.process_frame)
+
+        #
+        self.media_player = None
+
     def set_media_player(self, media_player: QMediaPlayer):
-        media_player.setVideoOutput(self.video_item)
+        media_player.setVideoOutput(self.video_sink)
+        self.media_player = media_player
 
     def wheelEvent(self, event: QWheelEvent):
         if event.angleDelta().y() > 0:
@@ -37,9 +54,90 @@ class VideoGraphicsView(QGraphicsView):
         self.resetTransform()
         self.scale(self.scale_factor, self.scale_factor)
 
+    def mousePressEvent(self, event):
+        if self.drawing_roi:
+            self.roi_start_pos = self.mapToScene(event.pos())
+            if self.roi_rect_item is None:
+                self.roi_rect_item = QGraphicsRectItem()
+                self.roi_rect_item.setPen(QPen(Qt.GlobalColor.red, 2))
+                self.scene().addItem(self.roi_rect_item)
+
+    def mouseMoveEvent(self, event):
+        if self.drawing_roi and self.roi_start_pos:
+            current_pos = self.mapToScene(event.pos())
+            rect = QRectF(self.roi_start_pos, current_pos).normalized()
+            self.roi_rect_item.setRect(rect)
+
+    def mouseReleaseEvent(self, event):
+        if self.drawing_roi:
+            self.drawing_roi = False
+            self.roi_start_pos = None
+
+    def start_drawing_roi(self):
+        self.drawing_roi = True
+        self.roi_start_pos = None
+        if self.roi_rect_item:
+            self.scene().removeItem(self.roi_rect_item)
+            self.roi_rect_item = None
+
+    def process_frame(self, frame: QVideoFrame):
+        if self.roi_rect_item and frame.isValid():
+            frame.map(QVideoFrame.MapMode.ReadOnly)
+            image = frame.toImage()
+            roi_rect = self.roi_rect_item.rect().toRect()
+            cropped_image = image.copy(roi_rect)
+            frame.unmap()
+            average_value = self.calculate_average_pixel_value(cropped_image)
+            self.roi_average_signal.emit(average_value)
+
+    @staticmethod
+    def calculate_average_pixel_value(image: QImage):
+        total_pixels = image.width() * image.height()
+        if total_pixels == 0:
+            return 0
+
+        total_intensity = 0
+        for x in range(image.width()):
+            for y in range(image.height()):
+                pixel = QColor(image.pixel(x, y))
+                intensity = (pixel.red() + pixel.green() + pixel.blue()) / 3
+                total_intensity += intensity
+
+        return total_intensity / total_pixels
+
+
+class PlotView(QWidget):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.layout = QVBoxLayout(self)
+        self.canvas = FigureCanvas(Figure())
+        self.layout.addWidget(self.canvas)
+
+        self.ax = self.canvas.figure.subplots()
+        self.x_data = []
+        self.y_data = []
+        self.line, = self.ax.plot(self.x_data, self.y_data)
+
+        self.ax.set_xlabel('Frame')
+        self.ax.set_ylabel('Average Pixel Intensity')
+
+    def update_plot(self, value):
+        self.x_data.append(len(self.x_data))
+        self.y_data.append(value)
+
+        self.line.set_xdata(self.x_data)
+        self.line.set_ydata(self.y_data)
+
+        self.ax.relim()
+        self.ax.autoscale_view()
+
+        self.canvas.draw()
+
 
 class VideoLoaderApp(QMainWindow):
     layout: QVBoxLayout
+    splitter: QSplitter
+
     load_button: QPushButton
     video_label: QLabel
 
@@ -54,6 +152,11 @@ class VideoLoaderApp(QMainWindow):
 
     play_button: QPushButton
     pause_button: QPushButton
+
+    control_panel: QHBoxLayout
+    roi_button: QPushButton
+
+    plot_view: PlotView
 
     def __init__(self):
         super().__init__()
@@ -74,9 +177,15 @@ class VideoLoaderApp(QMainWindow):
         #
         self.control_media_player()
 
+        #
+        self.setup_control_panel()
+
+        #
+        self.setup_plot_view()
+
     def setup_windows(self):
         self.setWindowTitle("Video Loader")
-        self.setGeometry(100, 100, 800, 600)
+        self.setGeometry(100, 100, 1200, 600)
 
         # Create a central widget and set the layout
         central_widget = QWidget()
@@ -111,10 +220,17 @@ class VideoLoaderApp(QMainWindow):
     def setup_media_player(self):
         """Video view for playing the video"""
         self.video_view = VideoGraphicsView()
-        self.layout.addWidget(self.video_view)
+
+        # Use QSplitter to allow resizing
+        self.splitter = QSplitter(Qt.Orientation.Vertical)
+        self.splitter.addWidget(self.video_view)
+        self.splitter.setStretchFactor(0, 3)  # Make video view take more space
+        self.layout.addWidget(self.splitter)
 
         self.media_player = QMediaPlayer(self)
         self.video_view.set_media_player(self.media_player)
+
+        self.video_view.roi_average_signal.connect(self.update_plot)
 
     def control_media_player(self):
         self.media_player.durationChanged.connect(self.update_duration)
@@ -226,6 +342,33 @@ class VideoLoaderApp(QMainWindow):
     def log_message(self, message):
         self.message_log.append(message)
         self.message_log.moveCursor(QTextCursor.MoveOperation.End)
+
+    # ================= #
+    # Control ROI Panel #
+    # ================= #
+
+    def setup_control_panel(self):
+        self.control_panel = QHBoxLayout()
+        self.layout.addLayout(self.control_panel)
+
+        self.roi_button = QPushButton("Drag a ROI")
+        self.roi_button.clicked.connect(self.start_drawing_roi)
+        self.control_panel.addWidget(self.roi_button)
+
+    def start_drawing_roi(self):
+        self.video_view.start_drawing_roi()
+
+    # =========== #
+    # Plot View   #
+    # =========== #
+
+    def setup_plot_view(self):
+        self.plot_view = PlotView()
+        self.splitter.addWidget(self.plot_view)  # Add plot view to the splitter
+        self.splitter.setStretchFactor(1, 1)  # Make plot view take less space initially
+
+    def update_plot(self, value):
+        self.plot_view.update_plot(value)
 
     def main(self):
         self.show()
