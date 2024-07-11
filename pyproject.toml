@@ -1,0 +1,36 @@
+[project]
+name = "pixviz"
+version = "0.0.0"
+requires-python = ">=3.10"
+description = "GUI for image sequences pixel analysis"
+authors = [
+    { name = "Yu-Ting Wei", email = "ytsimon2004@gmail.com" }
+]
+license = { file = "LICENSE" }
+readme = "README.md"
+keywords = ["computer vision", "image processing"]
+classifiers = [
+    "Programming Language :: Python :: 3.10",
+    "License :: OSI Approved :: BSD License",
+    "Natural Language :: English",
+    "Operating System :: OS Independent",
+    "Topic :: Scientific/Engineering",
+    'Intended Audience :: Science/Research',
+    "Typing :: Typed",
+]
+
+dynamic = ['dependencies']
+
+[project.urls]
+Homepage = "https://github.com/ytsimon2004/pixelviz"
+Repository = "https://github.com/ytsimon2004/pixelviz"
+Issues = "https://github.com/ytsimon2004/pixelviz/issues"
+
+
+[tool.setuptools.dynamic]
+dependencies = { file = ["requirements.txt"] }
+
+
+[build-system]
+build-backend = "setuptools.build_meta"
+requires = ["setuptools>=61.0"]
