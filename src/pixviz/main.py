@@ -1,14 +1,17 @@
+import concurrent
 import sys
+from concurrent.futures import ThreadPoolExecutor
 from typing import Literal
 
 import numpy as np
-from PyQt6.QtCore import Qt, QUrl, QRectF, pyqtSignal, QTimer
+from PyQt6.QtCore import Qt, QUrl, QRectF, pyqtSignal, QTimer, QThread, pyqtSlot
 from PyQt6.QtGui import QTextCursor, QWheelEvent, QPen, QImage, QColor, QPixmap, QPainter
 from PyQt6.QtMultimedia import QMediaPlayer, QAudioOutput
 from PyQt6.QtMultimediaWidgets import QGraphicsVideoItem
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QPushButton, QFileDialog, QLabel, QVBoxLayout, QWidget, QHBoxLayout, QGraphicsView,
-    QGraphicsScene, QSlider, QTextEdit, QGraphicsRectItem, QSplitter, QDialog, QLineEdit, QRadioButton, QButtonGroup
+    QGraphicsScene, QSlider, QTextEdit, QGraphicsRectItem, QSplitter, QDialog, QLineEdit, QRadioButton, QButtonGroup,
+    QProgressBar
 )
 
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
@@ -268,6 +271,38 @@ class PlotView(QWidget):
         self.canvas.draw()
 
 
+class FrameProcessor(QThread):
+    progress = pyqtSignal(int)
+    finished = pyqtSignal(list)
+
+    def __init__(self, video_view: VideoGraphicsView, total_frames: int, calculate_func: str):
+        super().__init__()
+        self.video_view = video_view
+        self.total_frames = total_frames
+        self.calculate_func = calculate_func
+
+    def run(self):
+        frame_values = []
+        frame_numbers = list(range(self.total_frames))  # Process all frames
+        with ThreadPoolExecutor() as executor:
+            futures = {executor.submit(self.process_single_frame, frame_number): frame_number for frame_number in frame_numbers}
+            for future in concurrent.futures.as_completed(futures):
+                frame_number = futures[future]
+                try:
+                    result = future.result()
+                    frame_values.append(result)
+                    self.progress.emit(int((frame_number / self.total_frames) * 100))
+                except Exception as exc:
+                    print(f'Frame {frame_number} generated an exception: {exc}')
+        self.finished.emit(frame_values)
+
+    def process_single_frame(self, frame_number):
+        self.video_view.media_player.setPosition(int(frame_number * (1000 / self.video_view.media_player.playbackRate())))
+        QThread.msleep(int(1000 / self.video_view.media_player.playbackRate()))
+        self.video_view.process_frame(self.calculate_func)
+        return self.video_view.calculate_average_pixel_value(self.video_view.grab_frame())
+
+
 class VideoLoaderApp(QMainWindow):
     layout: QHBoxLayout
     main_splitter: QSplitter
@@ -292,6 +327,11 @@ class VideoLoaderApp(QMainWindow):
     roi_button: QPushButton
 
     plot_view: PlotView
+
+    #
+    frame_processor: FrameProcessor
+    process_button: QPushButton
+    process_progress: QProgressBar
 
     def __init__(self):
         super().__init__()
@@ -320,6 +360,9 @@ class VideoLoaderApp(QMainWindow):
 
         #
         self.setup_plot_view()
+
+        #
+        self.setup_process_button()
 
         self.timer = QTimer()
         self.timer.timeout.connect(self.process_frame)
@@ -533,6 +576,37 @@ class VideoLoaderApp(QMainWindow):
 
     def update_plot(self, value):
         self.plot_view.update_plot(value)
+
+    # ================== #
+    # Process the result #
+    # ================== #
+
+    def setup_process_button(self):
+        self.process_button = QPushButton("Process")
+        self.process_button.clicked.connect(self.process_all_frames)
+        self.control_panel.addWidget(self.process_button)
+
+        self.process_progress = QProgressBar(self)
+        self.process_progress.setRange(0, 100)
+        self.process_progress.setValue(0)
+        self.control_panel.addWidget(self.process_progress)
+
+    def process_all_frames(self):
+        if self.roi is None:
+            self.log_message("Please set an ROI first.")
+            return
+
+        total_frames = int(self.media_player.duration() / 1000.0 * self.sampling_rate)
+        print(f'####### {total_frames=}')
+        self.frame_processor = FrameProcessor(self.video_view, total_frames, self.roi.function)
+        self.frame_processor.progress.connect(self.process_progress.setValue)
+        self.frame_processor.finished.connect(self.save_frame_values)
+        self.frame_processor.start()
+
+    @pyqtSlot(list)
+    def save_frame_values(self, frame_values):
+        np.save('averaged_pixel_values.npy', frame_values)
+        self.log_message("Averaged pixel values saved to averaged_pixel_values.npy")
 
     def main(self):
         self.show()
