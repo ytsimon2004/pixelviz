@@ -275,9 +275,14 @@ class PlotView(QWidget):
 
         self.canvas.draw()
 
+    def clear_plot(self):
+        self.x_data = []
+        self.y_data = []
+
 
 class FrameProcessor(QThread):
-    progress = pyqtSignal(int)
+    progress = pyqtSignal(int, int)
+    frame_processed = pyqtSignal(float)
     finished = pyqtSignal(list)
 
     def __init__(self,
@@ -300,7 +305,8 @@ class FrameProcessor(QThread):
                 result = self.process_single_frame(frame_number)
                 if result is not None:
                     frame_values.append(result)
-                self.progress.emit(int((frame_number / self.total_frames) * 100))
+                    self.frame_processed.emit(result)
+                self.progress.emit(frame_number, int((frame_number / self.total_frames) * 100))
             except Exception as exc:
                 print(f'Frame {frame_number} generated an exception: {exc}')
                 traceback.print_exc()
@@ -332,16 +338,17 @@ class FrameProcessor(QThread):
 
     @staticmethod
     def calculate_average_pixel_value(frame):
-        total_pixels = frame.size
-        if total_pixels == 0:
+        if frame.size == 0:
             return 0
-        total_intensity = np.sum(frame) / 3  # Assuming frame is in BGR format
-        return total_intensity / total_pixels
+        gray_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        return np.mean(gray_frame)
 
     @staticmethod
     def calculate_median_pixel_value(frame):
-        intensities = frame.reshape(-1, 3).mean(axis=1)  # Average the RGB values for each pixel
-        return np.median(intensities)
+        if frame.size == 0:
+            return 0
+        gray_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        return np.median(gray_frame)
 
 
 DEBUG_MODE = True
@@ -575,11 +582,11 @@ class VideoLoaderApp(QMainWindow):
             case Qt.Key.Key_Right:
                 self.log_message("Right arrow key pressed")  # TODO bugfix receiver
                 new_position = current_position + (10 * frame_duration)
-                self.media_player.setPosition(int(new_position))
+                self.set_position(int(new_position))
             case Qt.Key.Key_Left:
                 self.log_message("Left arrow key pressed")  # TODO bugfix receiver
                 new_position = current_position - (10 * frame_duration)
-                self.media_player.setPosition(int(new_position))
+                self.set_position(int(new_position))
             case Qt.Key.Key_Space:
                 if self.media_player.playbackState() == QMediaPlayer.PlaybackState.PlayingState:
                     self.pause_video()
@@ -660,15 +667,31 @@ class VideoLoaderApp(QMainWindow):
             self.log_message("Please set an ROI first.")
             return
 
+        self.plot_view.clear_plot()
+
         self.frame_processor = FrameProcessor(self.cap, self.video_view.rect, self.roi.function)
-        self.frame_processor.progress.connect(self.process_progress.setValue)
+        self.frame_processor.progress.connect(self.update_progress_and_frame)
+        self.frame_processor.frame_processed.connect(self.update_plot)
         self.frame_processor.finished.connect(self.save_frame_values)
         self.frame_processor.start()
 
+
+    @pyqtSlot(int, int)
+    def update_progress_and_frame(self, frame_number: int, progress_value: int):
+        self.process_progress.setValue(progress_value)
+        pos = int((frame_number / self.total_frames) * self.media_player.duration())
+        self.set_position(pos)
+        self.update_frame_number(pos)
+
+    @pyqtSlot(float)
+    def update_plot(self, value):
+        self.plot_view.update_plot(value)
+
     @pyqtSlot(list)
     def save_frame_values(self, frame_values):
-        file = Path(self.video_path).with_suffix('.npy')
-        np.save(file, frame_values)
+        file = Path(self.video_path)
+        output = file.with_stem(f'{file.stem}_pixviz_{self.roi.name}').with_suffix('.npy')
+        np.save(output, frame_values)
         self.log_message("Averaged pixel values saved to averaged_pixel_values.npy")
 
     def main(self):
