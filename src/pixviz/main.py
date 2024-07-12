@@ -195,7 +195,7 @@ class VideoGraphicsView(QGraphicsView):
             self.scene().removeItem(self.roi_rect_item)
             self.roi_rect_item = None
 
-    def process_frame(self, calculate_func: str = 'mean'):
+    def process_frame(self, calculate_func: str = 'mean') -> None:
         if self.roi_rect_item:
             image = self.grab_frame()
             if image:
@@ -211,7 +211,7 @@ class VideoGraphicsView(QGraphicsView):
 
                 self.roi_average_signal.emit(calc_pixel)
 
-    def grab_frame(self):
+    def grab_frame(self) -> QImage:
         # Grab the current frame from the video_item
         pixmap = QPixmap(self.video_item.boundingRect().size().toSize())
         painter = QPainter(pixmap)
@@ -327,28 +327,16 @@ class FrameProcessor(QThread):
                 print(f"Skipping frame {frame_number} due to empty ROI frame")
                 return None
 
+            frame = cv2.cvtColor(roi_frame, cv2.COLOR_BGR2GRAY)
+
             if self.calculate_func == 'mean':
-                return self.calculate_average_pixel_value(roi_frame)
+                return np.mean(frame)
             elif self.calculate_func == 'median':
-                return self.calculate_median_pixel_value(roi_frame)
+                return np.median(frame)
         except Exception as e:
             print(f"Exception in processing frame {frame_number}: {e}")
             traceback.print_exc()
             return None
-
-    @staticmethod
-    def calculate_average_pixel_value(frame):
-        if frame.size == 0:
-            return 0
-        gray_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-        return np.mean(gray_frame)
-
-    @staticmethod
-    def calculate_median_pixel_value(frame):
-        if frame.size == 0:
-            return 0
-        gray_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-        return np.median(gray_frame)
 
 
 DEBUG_MODE = True
@@ -645,9 +633,6 @@ class VideoLoaderApp(QMainWindow):
         self.splitter.addWidget(QWidget())
         self.splitter.widget(2).setLayout(self.progress_bar_layout)
 
-    def update_plot(self, value):
-        self.plot_view.update_plot(value)
-
     # ================== #
     # Process the result #
     # ================== #
@@ -668,13 +653,13 @@ class VideoLoaderApp(QMainWindow):
             return
 
         self.plot_view.clear_plot()
+        self.update_frame_number(0)
 
         self.frame_processor = FrameProcessor(self.cap, self.video_view.rect, self.roi.function)
         self.frame_processor.progress.connect(self.update_progress_and_frame)
         self.frame_processor.frame_processed.connect(self.update_plot)
         self.frame_processor.finished.connect(self.save_frame_values)
         self.frame_processor.start()
-
 
     @pyqtSlot(int, int)
     def update_progress_and_frame(self, frame_number: int, progress_value: int):
@@ -688,10 +673,12 @@ class VideoLoaderApp(QMainWindow):
         self.plot_view.update_plot(value)
 
     @pyqtSlot(list)
-    def save_frame_values(self, frame_values):
+    def save_frame_values(self, frame_values: np.ndarray):
         file = Path(self.video_path)
-        output = file.with_stem(f'{file.stem}_pixviz_{self.roi.name}').with_suffix('.npy')
-        np.save(output, frame_values)
+        output = file.with_stem(f'{file.stem}_pixviz_{self.roi.name}').with_suffix('.pkl')
+
+        roi = RoiType(self.roi.name, self.roi.function, data=frame_values)
+        roi.save(output)
         self.log_message("Averaged pixel values saved to averaged_pixel_values.npy")
 
     def main(self):

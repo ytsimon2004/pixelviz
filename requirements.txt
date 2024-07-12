@@ -3,3 +3,4 @@ matplotlib
 numpy
 tqdm
 opencv-python
+typing-extensions
