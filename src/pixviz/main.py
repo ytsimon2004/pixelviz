@@ -1,3 +1,4 @@
+import datetime
 import sys
 import traceback
 
@@ -604,7 +605,8 @@ class VideoLoaderApp(QMainWindow):
         self.main_splitter.setStretchFactor(0, 1)
 
     def log_message(self, message: str) -> None:
-        self.message_log.append(message)
+        timestamp = datetime.datetime.now().strftime("%H:%M:%S")
+        self.message_log.append(f"[{timestamp}] - {message}")
         self.message_log.moveCursor(QTextCursor.MoveOperation.End)
 
     # ================= #
