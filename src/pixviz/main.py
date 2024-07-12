@@ -275,7 +275,11 @@ class FrameProcessor(QThread):
     progress = pyqtSignal(int)
     finished = pyqtSignal(list)
 
-    def __init__(self, video_view: VideoGraphicsView, total_frames: int, calculate_func: str):
+    def __init__(self,
+                 video_view: VideoGraphicsView,
+                 total_frames: int,
+                 calculate_func: str):
+
         super().__init__()
         self.video_view = video_view
         self.total_frames = total_frames
@@ -285,7 +289,8 @@ class FrameProcessor(QThread):
         frame_values = []
         frame_numbers = list(range(self.total_frames))  # Process all frames
         with ThreadPoolExecutor() as executor:
-            futures = {executor.submit(self.process_single_frame, frame_number): frame_number for frame_number in frame_numbers}
+            futures = {executor.submit(self.process_single_frame, frame_number): frame_number for frame_number in
+                       frame_numbers}
             for future in concurrent.futures.as_completed(futures):
                 frame_number = futures[future]
                 try:
@@ -297,11 +302,14 @@ class FrameProcessor(QThread):
         self.finished.emit(frame_values)
 
     def process_single_frame(self, frame_number):
-        self.video_view.media_player.setPosition(int(frame_number * (1000 / self.video_view.media_player.playbackRate())))
+        self.video_view.media_player.setPosition(
+            int(frame_number * (1000 / self.video_view.media_player.playbackRate())))
         QThread.msleep(int(1000 / self.video_view.media_player.playbackRate()))
         self.video_view.process_frame(self.calculate_func)
         return self.video_view.calculate_average_pixel_value(self.video_view.grab_frame())
 
+
+DEBUG_MODE = False
 
 class VideoLoaderApp(QMainWindow):
     layout: QHBoxLayout
@@ -433,7 +441,9 @@ class VideoLoaderApp(QMainWindow):
     def control_media_player(self):
         self.media_player.durationChanged.connect(self.update_duration)
         self.media_player.positionChanged.connect(self.update_position)
-        self.media_player.mediaStatusChanged.connect(self.handle_media_status)
+
+        if DEBUG_MODE:
+            self.media_player.mediaStatusChanged.connect(self._handle_media_status)
 
         # Control buttons layout
         self.control_layout = QHBoxLayout()
@@ -457,7 +467,7 @@ class VideoLoaderApp(QMainWindow):
         self.log_message("pause")
         self.media_player.pause()
 
-    def handle_media_status(self, status):
+    def _handle_media_status(self, status):
         match status:
             case QMediaPlayer.MediaStatus.EndOfMedia:
                 self.log_message("End of media reached")
@@ -496,32 +506,41 @@ class VideoLoaderApp(QMainWindow):
         self.progress_bar_layout = QVBoxLayout()
         self.progress_bar_layout.addWidget(self.progress_bar)
 
-    def update_duration(self, duration):
+    def update_duration(self, duration: int):
         self.progress_bar.setRange(0, duration)
 
-    def update_position(self, position):
+    def update_position(self, position: int):
         self.progress_bar.setValue(position)
         self.update_frame_number(position)
 
-    def update_frame_number(self, position):
+    def update_frame_number(self, position: int):
         frame_number = int((position / 1000.0) * self.sampling_rate)
         self.video_view.frame_label.setText(f"Frame: {frame_number}")
 
-    def set_position(self, position):
+    def set_position(self, position: int):
         self.media_player.setPosition(position)
 
     def keyPressEvent(self, event):
         current_position = self.media_player.position()
         frame_duration = 1000.0 / self.sampling_rate  # duration of one frame in milliseconds
 
-        if event.key() == Qt.Key.Key_Right:
-            self.log_message("Right arrow key pressed")
-            new_position = current_position + (10 * frame_duration)
-            self.media_player.setPosition(int(new_position))
-        elif event.key() == Qt.Key.Key_Left:
-            self.log_message("Left arrow key pressed")
-            new_position = current_position - (10 * frame_duration)
-            self.media_player.setPosition(int(new_position))
+        match event.key():
+
+            case Qt.Key.Key_Right:
+                self.log_message("Right arrow key pressed") # TODO bugfix receiver
+                new_position = current_position + (10 * frame_duration)
+                self.media_player.setPosition(int(new_position))
+            case Qt.Key.Key_Left:
+                self.log_message("Left arrow key pressed")  # TODO bugfix receiver
+                new_position = current_position - (10 * frame_duration)
+                self.media_player.setPosition(int(new_position))
+            case Qt.Key.Key_Space:
+                if self.media_player.playbackState() == QMediaPlayer.PlaybackState.PlayingState:
+                    self.pause_video()
+                else:
+                    self.play_video()
+
+
 
     def process_frame(self):
         self.video_view.process_frame()
