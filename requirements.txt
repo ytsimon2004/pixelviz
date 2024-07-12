@@ -2,3 +2,4 @@ PyQt6
 matplotlib
 numpy
 tqdm
+opencv-python

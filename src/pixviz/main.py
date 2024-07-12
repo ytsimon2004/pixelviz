@@ -1,8 +1,7 @@
-import concurrent
 import sys
-from concurrent.futures import ThreadPoolExecutor
-from typing import Literal
+import traceback
 
+import cv2
 import numpy as np
 from PyQt6.QtCore import Qt, QUrl, QRectF, pyqtSignal, QTimer, QThread, pyqtSlot
 from PyQt6.QtGui import QTextCursor, QWheelEvent, QPen, QImage, QColor, QPixmap, QPainter
@@ -13,15 +12,15 @@ from PyQt6.QtWidgets import (
     QGraphicsScene, QSlider, QTextEdit, QGraphicsRectItem, QSplitter, QDialog, QLineEdit, QRadioButton, QButtonGroup,
     QProgressBar
 )
-
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
 
+from core import PIXEL_CAL_FUNCTION
 from pixviz.output import RoiType
 
 
-class SamplingRateDialog(QDialog):
-    def __init__(self):
+class FrameRateDialog(QDialog):
+    def __init__(self, default_value: float):
         super().__init__()
         self.setWindowTitle("Set Sampling Rate")
 
@@ -31,6 +30,8 @@ class SamplingRateDialog(QDialog):
         self.layout.addWidget(self.label)
 
         self.input = QLineEdit()
+        self.input.setText(str(default_value))
+
         self.layout.addWidget(self.input)
 
         self.button_box = QHBoxLayout()
@@ -89,7 +90,7 @@ class RoiSettingsDialog(QDialog):
         self.layout.addLayout(self.button_box)
         self.setLayout(self.layout)
 
-    def get_calculated_func(self) -> Literal['mean', 'median']:
+    def get_calculated_func(self) -> PIXEL_CAL_FUNCTION:
         if self.mean_button.isChecked():
             return 'mean'
         elif self.median_button.isChecked():
@@ -111,6 +112,7 @@ class VideoGraphicsView(QGraphicsView):
 
     def __init__(self):
         super().__init__()
+
         self.scale_factor: float = 1.0
         self.setScene(QGraphicsScene(self))
         self.video_item = QGraphicsVideoItem()
@@ -120,6 +122,7 @@ class VideoGraphicsView(QGraphicsView):
         self.drawing_roi: bool = False
         self.roi_start_pos = None
         self.roi_rect_item = None
+        self.rect: QRectF | None = None
 
         self.pixmap_item = None
 
@@ -174,8 +177,8 @@ class VideoGraphicsView(QGraphicsView):
     def mouseMoveEvent(self, event):
         if self.drawing_roi and self.roi_start_pos:
             current_pos = self.mapToScene(event.pos())
-            rect = QRectF(self.roi_start_pos, current_pos).normalized()
-            self.roi_rect_item.setRect(rect)
+            self.rect = QRectF(self.roi_start_pos, current_pos).normalized()
+            self.roi_rect_item.setRect(self.rect)
 
     def mouseReleaseEvent(self, event):
         if self.drawing_roi:
@@ -276,40 +279,71 @@ class FrameProcessor(QThread):
     finished = pyqtSignal(list)
 
     def __init__(self,
-                 video_view: VideoGraphicsView,
-                 total_frames: int,
-                 calculate_func: str):
+                 cap: cv2.VideoCapture,
+                 roi_rect: QRectF,
+                 calculate_func: PIXEL_CAL_FUNCTION):
 
         super().__init__()
-        self.video_view = video_view
-        self.total_frames = total_frames
+        self.cap = cap
+        self.roi_rect = roi_rect
         self.calculate_func = calculate_func
+
+        self.total_frames = int(self.cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        self.frame_rate = self.cap.get(cv2.CAP_PROP_FPS)
 
     def run(self):
         frame_values = []
-        frame_numbers = list(range(self.total_frames))  # Process all frames
-        with ThreadPoolExecutor() as executor:
-            futures = {executor.submit(self.process_single_frame, frame_number): frame_number for frame_number in
-                       frame_numbers}
-            for future in concurrent.futures.as_completed(futures):
-                frame_number = futures[future]
-                try:
-                    result = future.result()
+        for frame_number in range(self.total_frames):
+            try:
+                result = self.process_single_frame(frame_number)
+                if result is not None:
                     frame_values.append(result)
-                    self.progress.emit(int((frame_number / self.total_frames) * 100))
-                except Exception as exc:
-                    print(f'Frame {frame_number} generated an exception: {exc}')
+                self.progress.emit(int((frame_number / self.total_frames) * 100))
+            except Exception as exc:
+                print(f'Frame {frame_number} generated an exception: {exc}')
+                traceback.print_exc()
         self.finished.emit(frame_values)
 
     def process_single_frame(self, frame_number):
-        self.video_view.media_player.setPosition(
-            int(frame_number * (1000 / self.video_view.media_player.playbackRate())))
-        QThread.msleep(int(1000 / self.video_view.media_player.playbackRate()))
-        self.video_view.process_frame(self.calculate_func)
-        return self.video_view.calculate_average_pixel_value(self.video_view.grab_frame())
+        try:
+            self.cap.set(cv2.CAP_PROP_POS_FRAMES, frame_number)
+            ret, frame = self.cap.read()
+            if not ret or frame is None:
+                print(f"Skipping frame {frame_number} due to read failure")
+                return None
+
+            roi_frame = frame[int(self.roi_rect.top()):int(self.roi_rect.bottom()),
+                        int(self.roi_rect.left()):int(self.roi_rect.right())]
+
+            if roi_frame.size == 0:
+                print(f"Skipping frame {frame_number} due to empty ROI frame")
+                return None
+
+            if self.calculate_func == 'mean':
+                return self.calculate_average_pixel_value(roi_frame)
+            elif self.calculate_func == 'median':
+                return self.calculate_median_pixel_value(roi_frame)
+        except Exception as e:
+            print(f"Exception in processing frame {frame_number}: {e}")
+            traceback.print_exc()
+            return None
+
+    @staticmethod
+    def calculate_average_pixel_value(frame):
+        total_pixels = frame.size
+        if total_pixels == 0:
+            return 0
+        total_intensity = np.sum(frame) / 3  # Assuming frame is in BGR format
+        return total_intensity / total_pixels
+
+    @staticmethod
+    def calculate_median_pixel_value(frame):
+        intensities = frame.reshape(-1, 3).mean(axis=1)  # Average the RGB values for each pixel
+        return np.median(intensities)
 
 
-DEBUG_MODE = False
+DEBUG_MODE = True
+
 
 class VideoLoaderApp(QMainWindow):
     layout: QHBoxLayout
@@ -344,8 +378,11 @@ class VideoLoaderApp(QMainWindow):
     def __init__(self):
         super().__init__()
 
-        #
-        self.sampling_rate: float | None = None
+        # set after load
+        self.video_path: str | None = None
+        self.cap: cv2.VideoCapture | None = None
+        self.total_frames: int | None = None
+        self.frame_rate: float | None = None
         self.roi: RoiType | None = None
 
         #
@@ -406,12 +443,19 @@ class VideoLoaderApp(QMainWindow):
             self.media_player.setSource(QUrl.fromLocalFile(file_path))
             self.log_message(f"Loaded Video: {file_path}")
 
+            self.video_path = file_path
+            self.cap = cv2.VideoCapture(self.video_path)
+            self.total_frames = int(self.cap.get(cv2.CAP_PROP_FRAME_COUNT))
+            self.frame_rate = self.cap.get(cv2.CAP_PROP_FPS)
+
+            self.log_message(f'total frames: {self.total_frames}, frame_rate: {self.frame_rate}')
+
             # Prompt for the sampling rate
-            dialog = SamplingRateDialog()
+            dialog = FrameRateDialog(default_value=self.frame_rate)
             if dialog.exec() == QDialog.DialogCode.Accepted:
-                self.sampling_rate = dialog.get_sampling_rate()
-                self.log_message(f"Sampling rate set to: {self.sampling_rate} frames per second")
-                self.timer.start(int(1000 // self.sampling_rate))
+                self.frame_rate = dialog.get_sampling_rate()
+                self.log_message(f"Sampling rate set to: {self.frame_rate} frames per second")
+                self.timer.start(int(1000 // self.frame_rate))
 
     # ========== #
     # Video View #
@@ -514,7 +558,7 @@ class VideoLoaderApp(QMainWindow):
         self.update_frame_number(position)
 
     def update_frame_number(self, position: int):
-        frame_number = int((position / 1000.0) * self.sampling_rate)
+        frame_number = int((position / 1000.0) * self.frame_rate)
         self.video_view.frame_label.setText(f"Frame: {frame_number}")
 
     def set_position(self, position: int):
@@ -522,12 +566,12 @@ class VideoLoaderApp(QMainWindow):
 
     def keyPressEvent(self, event):
         current_position = self.media_player.position()
-        frame_duration = 1000.0 / self.sampling_rate  # duration of one frame in milliseconds
+        frame_duration = 1000.0 / self.frame_rate  # duration of one frame in milliseconds
 
         match event.key():
 
             case Qt.Key.Key_Right:
-                self.log_message("Right arrow key pressed") # TODO bugfix receiver
+                self.log_message("Right arrow key pressed")  # TODO bugfix receiver
                 new_position = current_position + (10 * frame_duration)
                 self.media_player.setPosition(int(new_position))
             case Qt.Key.Key_Left:
@@ -539,8 +583,6 @@ class VideoLoaderApp(QMainWindow):
                     self.pause_video()
                 else:
                     self.play_video()
-
-
 
     def process_frame(self):
         self.video_view.process_frame()
@@ -615,9 +657,7 @@ class VideoLoaderApp(QMainWindow):
             self.log_message("Please set an ROI first.")
             return
 
-        total_frames = int(self.media_player.duration() / 1000.0 * self.sampling_rate)
-        print(f'####### {total_frames=}')
-        self.frame_processor = FrameProcessor(self.video_view, total_frames, self.roi.function)
+        self.frame_processor = FrameProcessor(self.cap, self.video_view.rect, self.roi.function)
         self.frame_processor.progress.connect(self.process_progress.setValue)
         self.frame_processor.finished.connect(self.save_frame_values)
         self.frame_processor.start()
