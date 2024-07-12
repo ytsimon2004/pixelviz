@@ -1,6 +1,7 @@
 import datetime
 import sys
 import traceback
+from pathlib import Path
 
 import cv2
 import numpy as np
@@ -666,7 +667,8 @@ class VideoLoaderApp(QMainWindow):
 
     @pyqtSlot(list)
     def save_frame_values(self, frame_values):
-        np.save('averaged_pixel_values.npy', frame_values)
+        file = Path(self.video_path).with_suffix('.npy')
+        np.save(file, frame_values)
         self.log_message("Averaged pixel values saved to averaged_pixel_values.npy")
 
     def main(self):
