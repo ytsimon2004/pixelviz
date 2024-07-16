@@ -16,6 +16,7 @@ from PyQt6.QtWidgets import (
     QGraphicsScene, QSlider, QTextEdit, QGraphicsRectItem, QSplitter, QDialog, QLineEdit, QRadioButton, QButtonGroup,
     QProgressBar
 )
+from matplotlib import pyplot as plt
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
 
@@ -255,8 +256,9 @@ class VideoGraphicsView(QGraphicsView):
 
 
 class PlotView(QWidget):
-    def __init__(self, parent=None):
-        super().__init__(parent)
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
         self.layout = QVBoxLayout(self)
         self.canvas = FigureCanvas(Figure())
         self.layout.addWidget(self.canvas)
@@ -268,7 +270,7 @@ class PlotView(QWidget):
         self.line, = self.ax.plot([], [])
 
         self.ax.set_xlabel('Frame')
-        self.ax.set_ylabel('Average Pixel Intensity')
+        self.ax.set_ylabel('Pixel Intensity')
 
     def update_plot(self, frame_result: np.ndarray,
                     start: int | None = None,
@@ -458,6 +460,8 @@ class VideoLoaderApp(QMainWindow):
         self.timer.timeout.connect(self.process_frame)
 
     def setup_layout(self):
+        self._set_dark_theme()
+
         # windows
         self.setWindowTitle("Video Loader")
         self.setGeometry(100, 100, 1200, 800)
@@ -487,7 +491,6 @@ class VideoLoaderApp(QMainWindow):
         self.media_player = QMediaPlayer(self)
         self.video_view.set_media_player(self.media_player)
 
-
         # Progress Bar
         self.progress_bar = QSlider(Qt.Orientation.Horizontal)
         self.progress_bar.setRange(0, 100)
@@ -499,15 +502,14 @@ class VideoLoaderApp(QMainWindow):
         left_splitter.addWidget(self.plot_view)
         left_splitter.setStretchFactor(1, 1)
 
-        # left_splitter.addWidget(QWidget())
-        # left_splitter.widget(2).setLayout(progress_bar_layout)
+        left_splitter.addWidget(QWidget())
+        left_splitter.widget(2).setLayout(progress_bar_layout)
 
         # load button
         load_layout = QHBoxLayout()
         load_widget = QWidget()
         load_widget.setLayout(load_layout)
         right_splitter.addWidget(load_widget)
-
 
         self.load_video_button = QPushButton("Load Video")
         load_layout.addWidget(self.load_video_button)
@@ -543,6 +545,48 @@ class VideoLoaderApp(QMainWindow):
         self.message_log = QTextEdit()
         self.message_log.setReadOnly(True)
         right_splitter.addWidget(self.message_log)
+
+    def _set_dark_theme(self):
+        dark_stylesheet = """
+        QWidget {
+            background-color: #2E2E2E;
+            color: white;
+        }
+        QGraphicsView {
+            background-color: #2E2E2E;
+            border: 1px solid #444;
+        }
+        QPushButton {
+            background-color: #444;
+            border: 1px solid #555;
+            padding: 5px;
+        }
+        QPushButton:hover {
+            background-color: #555;
+        }
+        QLineEdit, QTextEdit {
+            background-color: #444;
+            border: 1px solid #555;
+            color: white;
+        }
+        QSlider::groove:horizontal {
+            background: #444;
+        }
+        QSlider::handle:horizontal {
+            background: #888;
+            border: 1px solid #555;
+            width: 10px;
+        }
+        QProgressBar {
+            border: 1px solid #555;
+            text-align: center;
+        }
+        QProgressBar::chunk {
+            background-color: #05B8CC;
+        }
+        """
+        self.setStyleSheet(dark_stylesheet)
+        plt.style.use('dark_background')
 
     def setup_controller(self):
         """controller for widgets"""
