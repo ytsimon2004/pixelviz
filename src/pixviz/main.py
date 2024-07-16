@@ -3,6 +3,7 @@ import pickle
 import sys
 import traceback
 from pathlib import Path
+from typing import ClassVar
 
 import cv2
 import numpy as np
@@ -21,6 +22,9 @@ from matplotlib.figure import Figure
 from core import PIXEL_CAL_FUNCTION
 from pixviz.output import RoiType
 
+
+def log_message(message: str) -> None:
+    VideoLoaderApp.INSTANCE.log_message(message)
 
 class FrameRateDialog(QDialog):
     def __init__(self, default_value: float):
@@ -306,6 +310,37 @@ class PlotView(QWidget):
 
         self.canvas.draw()
 
+    def load_from_file(self, file: str) -> None:
+
+        log_message(f'Plot view Load result from {file}')
+
+        ret = []
+        with Path(file).open('rb') as f:
+            dat = pickle.load(f)
+
+        for it in dat:
+            ret.append(
+                RoiType(
+                    name=it['name'],
+                    function=it['function'],
+                    data=it['data']
+                )
+            )
+
+        if len(ret) == 1:
+            log_message(f'Set {ret[0].name} result from {file}')
+            dat = ret[0].data
+            self.line.set_xdata(np.arange(len(dat)))
+            self.line.set_ydata(dat)
+
+            self.ax.relim()
+            self.ax.autoscale_view()
+
+            self.canvas.draw()
+
+        else:
+            raise NotImplementedError('')
+
 
 class FrameProcessor(QThread):
     progress = pyqtSignal(int, float)
@@ -378,7 +413,11 @@ DEBUG_MODE = True
 
 
 class VideoLoaderApp(QMainWindow):
-    load_button: QPushButton
+
+    INSTANCE: ClassVar['VideoLoaderApp']
+
+    load_video_button: QPushButton
+    load_result_button: QPushButton
 
     video_view: VideoGraphicsView
     media_player: QMediaPlayer
@@ -401,6 +440,8 @@ class VideoLoaderApp(QMainWindow):
 
     def __init__(self):
         super().__init__()
+
+        VideoLoaderApp.INSTANCE = self
 
         # set after load
         self.video_path: str | None = None
@@ -432,9 +473,11 @@ class VideoLoaderApp(QMainWindow):
         main_splitter = QSplitter(Qt.Orientation.Horizontal)
         layout.addWidget(main_splitter)
 
-        # button
-        self.load_button = QPushButton("Load Video")
-        layout.addWidget(self.load_button, alignment=Qt.AlignmentFlag.AlignTop)
+        # load button
+        self.load_video_button = QPushButton("Load Video")
+        layout.addWidget(self.load_video_button, alignment=Qt.AlignmentFlag.AlignTop)
+        self.load_result_button = QPushButton("Load Result")
+        layout.addWidget(self.load_result_button, alignment=Qt.AlignmentFlag.AlignTop)
 
         # media
         self.video_view = VideoGraphicsView()
@@ -493,9 +536,10 @@ class VideoLoaderApp(QMainWindow):
         control_panel.addWidget(self.process_progress)
 
     def setup_controller(self):
-
+        """controller for widgets"""
         # buttons
-        self.load_button.clicked.connect(self.load_video)
+        self.load_video_button.clicked.connect(self.load_video)
+        self.load_result_button.clicked.connect(self.load_result)
         self.roi_button.clicked.connect(self.start_drawing_roi)
         self.play_button.clicked.connect(self.play_video)
         self.pause_button.clicked.connect(self.pause_video)
@@ -538,6 +582,16 @@ class VideoLoaderApp(QMainWindow):
                 self.log_message(f"Sampling rate set to: {self.frame_rate} frames per second")
                 self.timer.start(int(1000 // self.frame_rate))
 
+    def load_result(self):
+        file_dialog = QFileDialog(self)
+        file_dialog.setNameFilter('Pixviz Result File (*.pkl)')
+        file_dialog.setFileMode(QFileDialog.FileMode.ExistingFile)
+
+        if file_dialog.exec():
+            file_path = file_dialog.selectedFiles()[0]
+            self.log_message(f"Loaded Result: {file_path}")
+            self.plot_view.load_from_file(file_path)
+
     def play_video(self):
         self.log_message("play")
         self.media_player.play()
@@ -564,10 +618,6 @@ class VideoLoaderApp(QMainWindow):
                 self.log_message("Media playback stalled")
             case _:
                 self.log_message(f'unknown {status}')
-
-    # ============ #
-    # Audio output #
-    # ============ #
 
     def update_duration(self, duration: int):
         self.progress_bar.setRange(0, duration)
