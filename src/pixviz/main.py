@@ -256,15 +256,45 @@ class PlotView(QWidget):
         self.canvas = FigureCanvas(Figure())
         self.layout.addWidget(self.canvas)
 
-        self.ax = self.canvas.figure.subplots()
         self.x_data = []
         self.y_data = []
-        self.line, = self.ax.plot(self.x_data, self.y_data)
+
+        self.ax = self.canvas.figure.subplots()
+        self.line, = self.ax.plot([], [])
 
         self.ax.set_xlabel('Frame')
         self.ax.set_ylabel('Average Pixel Intensity')
 
-    def update_plot(self, value):
+    def update_plot(self, frame_result: np.ndarray,
+                    start: int | None = None,
+                    end: int | None = None):
+        if frame_result is None:
+            return
+
+        if start is None:
+            start = 0
+
+        if end is None:
+            end = len(frame_result)
+
+        x_data = np.arange(start, end)
+        y_data = frame_result[start:end]
+
+        self.line.set_xdata(x_data)
+        self.line.set_ydata(y_data)
+
+        self.ax.relim()
+        self.ax.autoscale_view()
+
+        self.canvas.draw()
+
+    def clear_plot(self):
+        self.x_data = []
+        self.y_data = []
+        self.line.set_xdata([])
+        self.line.set_ydata([])
+
+    def add_realtime_plot(self, value):
         self.x_data.append(len(self.x_data))
         self.y_data.append(value)
 
@@ -276,15 +306,12 @@ class PlotView(QWidget):
 
         self.canvas.draw()
 
-    def clear_plot(self):
-        self.x_data = []
-        self.y_data = []
-
 
 class FrameProcessor(QThread):
-    progress = pyqtSignal(int, int)
-    frame_processed = pyqtSignal(float)
+    progress = pyqtSignal(int, float)
+    """frame_number, result"""
     finished = pyqtSignal(list)
+    """finish flag"""
 
     def __init__(self,
                  cap: cv2.VideoCapture,
@@ -299,23 +326,30 @@ class FrameProcessor(QThread):
         self.total_frames = int(self.cap.get(cv2.CAP_PROP_FRAME_COUNT))
         self.frame_rate = self.cap.get(cv2.CAP_PROP_FPS)
 
+        self.frame_results: np.ndarray | None = None
+
     def run(self):
-        frame_values = []
+        frame_values = np.full(self.total_frames, np.nan)
+
+        self.cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
         for frame_number in range(self.total_frames):
             try:
                 result = self.process_single_frame(frame_number)
-                if result is not None:
-                    frame_values.append(result)
-                    self.frame_processed.emit(result)
-                self.progress.emit(frame_number, int((frame_number / self.total_frames) * 100))
+
+                if result is None:
+                    result = np.nan
+                frame_values[frame_number] = result
+
+                self.progress.emit(frame_number, result)
             except Exception as exc:
                 print(f'Frame {frame_number} generated an exception: {exc}')
                 traceback.print_exc()
+
         self.finished.emit(frame_values)
 
     def process_single_frame(self, frame_number):
         try:
-            self.cap.set(cv2.CAP_PROP_POS_FRAMES, frame_number)
+            # self.cap.set(cv2.CAP_PROP_POS_FRAMES, frame_number)
             ret, frame = self.cap.read()
             if not ret or frame is None:
                 print(f"Skipping frame {frame_number} due to read failure")
@@ -344,17 +378,10 @@ DEBUG_MODE = True
 
 
 class VideoLoaderApp(QMainWindow):
-    layout: QHBoxLayout
-    main_splitter: QSplitter
-    splitter: QSplitter
-
-    progress_bar_layout: QVBoxLayout
-
     load_button: QPushButton
 
     video_view: VideoGraphicsView
     media_player: QMediaPlayer
-    control_layout: QHBoxLayout
     audio_output: QAudioOutput
 
     progress_bar: QSlider
@@ -363,7 +390,6 @@ class VideoLoaderApp(QMainWindow):
     play_button: QPushButton
     pause_button: QPushButton
 
-    control_panel: QHBoxLayout
     roi_button: QPushButton
 
     plot_view: PlotView
@@ -384,33 +410,14 @@ class VideoLoaderApp(QMainWindow):
         self.roi_list: list[RoiType] = []
 
         #
-        self.setup_windows()
-
-        #
-        self.button_load_video()
-        self.setup_media_player()
-        self.setup_audio()
-
-        #
-        self.setup_progress_bar()
-        self.setup_message_log()
-
-        #
-        self.control_media_player()
-
-        #
-        self.setup_control_panel()
-
-        #
-        self.setup_plot_view()
-
-        #
-        self.setup_process_button()
+        self.setup_layout()
+        self.setup_controller()
 
         self.timer = QTimer()
         self.timer.timeout.connect(self.process_frame)
 
-    def setup_windows(self):
+    def setup_layout(self):
+        # windows
         self.setWindowTitle("Video Loader")
         self.setGeometry(100, 100, 1200, 800)
 
@@ -418,18 +425,94 @@ class VideoLoaderApp(QMainWindow):
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
 
-        self.layout = QHBoxLayout()
-        central_widget.setLayout(self.layout)
+        layout = QHBoxLayout()
+        central_widget.setLayout(layout)
 
         # Create the main splitter to hold message log and media components
-        self.main_splitter = QSplitter(Qt.Orientation.Horizontal)
-        self.layout.addWidget(self.main_splitter)
+        main_splitter = QSplitter(Qt.Orientation.Horizontal)
+        layout.addWidget(main_splitter)
 
-    def button_load_video(self):
-        """Create a button to load the video file"""
+        # button
         self.load_button = QPushButton("Load Video")
+        layout.addWidget(self.load_button, alignment=Qt.AlignmentFlag.AlignTop)
+
+        # media
+        self.video_view = VideoGraphicsView()
+        splitter = QSplitter(Qt.Orientation.Vertical)
+        splitter.addWidget(self.video_view)
+        splitter.setStretchFactor(0, 3)  # Make video view take more space
+        layout.addWidget(splitter)
+
+        self.media_player = QMediaPlayer(self)
+        self.video_view.set_media_player(self.media_player)
+        main_splitter.addWidget(splitter)
+
+        # Control buttons layout
+        control_layout = QHBoxLayout()
+        layout.addLayout(control_layout)
+
+        self.play_button = QPushButton("Play")
+        control_layout.addWidget(self.play_button)
+
+        self.pause_button = QPushButton("Pause")
+        control_layout.addWidget(self.pause_button)
+
+        # Progress Bar
+        self.progress_bar = QSlider(Qt.Orientation.Horizontal)
+        self.progress_bar.setRange(0, 100)
+        progress_bar_layout = QVBoxLayout()
+        progress_bar_layout.addWidget(self.progress_bar)
+
+        # Message log
+        self.message_log = QTextEdit()
+        self.message_log.setReadOnly(True)
+        main_splitter.addWidget(self.message_log)
+        main_splitter.setStretchFactor(0, 1)
+
+        # ROI
+        control_panel = QHBoxLayout()
+        layout.addLayout(control_panel)
+        self.roi_button = QPushButton("Drag a ROI")
+        control_panel.addWidget(self.roi_button)
+
+        # Plot View
+        self.plot_view = PlotView()
+        splitter.addWidget(self.plot_view)
+        splitter.setStretchFactor(1, 1)
+
+        splitter.addWidget(QWidget())
+        splitter.widget(2).setLayout(progress_bar_layout)
+
+        # Result process
+        self.process_button = QPushButton("Process")
+        control_panel.addWidget(self.process_button)
+
+        self.process_progress = QProgressBar(self)
+        self.process_progress.setRange(0, 100)
+        self.process_progress.setValue(0)
+        control_panel.addWidget(self.process_progress)
+
+    def setup_controller(self):
+
+        # buttons
         self.load_button.clicked.connect(self.load_video)
-        self.layout.addWidget(self.load_button, alignment=Qt.AlignmentFlag.AlignTop)
+        self.roi_button.clicked.connect(self.start_drawing_roi)
+        self.play_button.clicked.connect(self.play_video)
+        self.pause_button.clicked.connect(self.pause_video)
+        self.process_button.clicked.connect(self.process_all_frames)
+
+        # media
+        self.media_player.durationChanged.connect(self.update_duration)
+        self.media_player.positionChanged.connect(self.update_position)
+        self.progress_bar.sliderMoved.connect(self.set_position)
+        if DEBUG_MODE:
+            self.media_player.mediaStatusChanged.connect(self._handle_media_status)
+
+        # rois
+        self.video_view.roi_complete_signal.connect(self.show_roi_settings_dialog)
+        self.video_view.roi_start_signal.connect(self.pause_video)
+        self.video_view.roi_complete_signal.connect(self.play_video)
+        self.video_view.roi_average_signal.connect(self.plot_view.add_realtime_plot)
 
     def load_video(self):
         file_dialog = QFileDialog(self)
@@ -454,52 +537,6 @@ class VideoLoaderApp(QMainWindow):
                 self.frame_rate = dialog.get_sampling_rate()
                 self.log_message(f"Sampling rate set to: {self.frame_rate} frames per second")
                 self.timer.start(int(1000 // self.frame_rate))
-
-    # ========== #
-    # Video View #
-    # ========== #
-
-    def setup_media_player(self):
-        """Video view for playing the video"""
-        self.video_view = VideoGraphicsView()
-        self.video_view.roi_complete_signal.connect(self.show_roi_settings_dialog)
-        self.video_view.roi_start_signal.connect(self.pause_video)
-        self.video_view.roi_complete_signal.connect(self.play_video)
-
-        # Use QSplitter to allow resizing
-        self.splitter = QSplitter(Qt.Orientation.Vertical)
-        self.splitter.addWidget(self.video_view)
-        self.splitter.setStretchFactor(0, 3)  # Make video view take more space
-        self.layout.addWidget(self.splitter)
-
-        self.media_player = QMediaPlayer(self)
-        self.video_view.set_media_player(self.media_player)
-
-        self.video_view.roi_average_signal.connect(self.update_plot)
-
-        # Add the splitter to the main splitter
-        self.main_splitter.addWidget(self.splitter)
-
-    def control_media_player(self):
-        self.media_player.durationChanged.connect(self.update_duration)
-        self.media_player.positionChanged.connect(self.update_position)
-
-        if DEBUG_MODE:
-            self.media_player.mediaStatusChanged.connect(self._handle_media_status)
-
-        # Control buttons layout
-        self.control_layout = QHBoxLayout()
-        self.layout.addLayout(self.control_layout)
-
-        # Play button
-        self.play_button = QPushButton("Play")
-        self.play_button.clicked.connect(self.play_video)
-        self.control_layout.addWidget(self.play_button)
-
-        # Pause button
-        self.pause_button = QPushButton("Pause")
-        self.pause_button.clicked.connect(self.pause_video)
-        self.control_layout.addWidget(self.pause_button)
 
     def play_video(self):
         self.log_message("play")
@@ -531,22 +568,6 @@ class VideoLoaderApp(QMainWindow):
     # ============ #
     # Audio output #
     # ============ #
-
-    def setup_audio(self):
-        self.audio_output = QAudioOutput(self)
-        self.media_player.setAudioOutput(self.audio_output)
-
-    # ============ #
-    # Progress Bar #
-    # ============ #
-
-    def setup_progress_bar(self):
-        self.progress_bar = QSlider(Qt.Orientation.Horizontal)
-        self.progress_bar.setRange(0, 100)
-        self.progress_bar.sliderMoved.connect(self.set_position)
-
-        self.progress_bar_layout = QVBoxLayout()
-        self.progress_bar_layout.addWidget(self.progress_bar)
 
     def update_duration(self, duration: int):
         self.progress_bar.setRange(0, duration)
@@ -596,58 +617,13 @@ class VideoLoaderApp(QMainWindow):
     # Message Log #
     # =========== #
 
-    def setup_message_log(self) -> None:
-        self.message_log = QTextEdit()
-        self.message_log.setReadOnly(True)
-        self.main_splitter.addWidget(self.message_log)
-        self.main_splitter.setStretchFactor(0, 1)
-
     def log_message(self, message: str) -> None:
         timestamp = datetime.datetime.now().strftime("%H:%M:%S")
         self.message_log.append(f"[{timestamp}] - {message}")
         self.message_log.moveCursor(QTextCursor.MoveOperation.End)
 
-    # ================= #
-    # Control ROI Panel #
-    # ================= #
-
-    def setup_control_panel(self):
-        self.control_panel = QHBoxLayout()
-        self.layout.addLayout(self.control_panel)
-
-        self.roi_button = QPushButton("Drag a ROI")
-        self.roi_button.clicked.connect(self.start_drawing_roi)
-        self.control_panel.addWidget(self.roi_button)
-
     def start_drawing_roi(self):
         self.video_view.start_drawing_roi()
-
-    # ========== #
-    # Plot View  #
-    # ========== #
-
-    def setup_plot_view(self):
-        self.plot_view = PlotView()
-        self.splitter.addWidget(self.plot_view)  # Add plot view to the splitter
-        self.splitter.setStretchFactor(1, 1)  # Make plot view take less space initially
-
-        # Add the progress bar layout to the splitter
-        self.splitter.addWidget(QWidget())
-        self.splitter.widget(2).setLayout(self.progress_bar_layout)
-
-    # ================== #
-    # Process the result #
-    # ================== #
-
-    def setup_process_button(self):
-        self.process_button = QPushButton("Process")
-        self.process_button.clicked.connect(self.process_all_frames)
-        self.control_panel.addWidget(self.process_button)
-
-        self.process_progress = QProgressBar(self)
-        self.process_progress.setRange(0, 100)
-        self.process_progress.setValue(0)
-        self.control_panel.addWidget(self.process_progress)
 
     def process_all_frames(self):
         if len(self.roi_list) == 0:
@@ -657,23 +633,21 @@ class VideoLoaderApp(QMainWindow):
         self.plot_view.clear_plot()
         self.update_frame_number(0)
 
-        # TODO open thread for multiple
         self.frame_processor = FrameProcessor(self.cap, self.video_view.rect, self.roi_list[0].function)
         self.frame_processor.progress.connect(self.update_progress_and_frame)
-        self.frame_processor.frame_processed.connect(self.update_plot)
         self.frame_processor.finished.connect(self.save_frame_values)
         self.frame_processor.start()
 
-    @pyqtSlot(int, int)
-    def update_progress_and_frame(self, frame_number: int, progress_value: int):
+    @pyqtSlot(int, float)
+    def update_progress_and_frame(self, frame_number: int, value: float):
+        progress_value = int((frame_number / self.total_frames) * 100)
         self.process_progress.setValue(progress_value)
         pos = int((frame_number / self.total_frames) * self.media_player.duration())
         self.set_position(pos)
         self.update_frame_number(pos)
 
-    @pyqtSlot(float)
-    def update_plot(self, value):
-        self.plot_view.update_plot(value)
+        if frame_number % 100 == 0:
+            self.plot_view.update_plot(self.frame_processor.frame_results, start=0, end=frame_number + 1)
 
     @pyqtSlot(list)
     def save_frame_values(self, frame_values: np.ndarray) -> None:
