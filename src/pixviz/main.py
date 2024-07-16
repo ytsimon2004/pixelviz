@@ -17,6 +17,7 @@ from PyQt6.QtWidgets import (
     QProgressBar
 )
 from matplotlib import pyplot as plt
+from matplotlib.backends.backend_qt import NavigationToolbar2QT
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
 
@@ -261,6 +262,8 @@ class PlotView(QWidget):
 
         self.layout = QVBoxLayout(self)
         self.canvas = FigureCanvas(Figure())
+        self.toolbar = NavigationToolbar2QT(self.canvas, self)
+        self.layout.addWidget(self.toolbar)
         self.layout.addWidget(self.canvas)
 
         self.x_data = []
