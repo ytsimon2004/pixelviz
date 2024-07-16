@@ -26,6 +26,7 @@ from pixviz.output import RoiType
 def log_message(message: str) -> None:
     VideoLoaderApp.INSTANCE.log_message(message)
 
+
 class FrameRateDialog(QDialog):
     def __init__(self, default_value: float):
         super().__init__()
@@ -413,7 +414,6 @@ DEBUG_MODE = True
 
 
 class VideoLoaderApp(QMainWindow):
-
     INSTANCE: ClassVar['VideoLoaderApp']
 
     load_video_button: QPushButton
@@ -469,36 +469,24 @@ class VideoLoaderApp(QMainWindow):
         layout = QHBoxLayout()
         central_widget.setLayout(layout)
 
-        # Create the main splitter to hold message log and media components
+        # Create the main left_splitter to hold message log and media components
         main_splitter = QSplitter(Qt.Orientation.Horizontal)
         layout.addWidget(main_splitter)
 
-        # load button
-        self.load_video_button = QPushButton("Load Video")
-        layout.addWidget(self.load_video_button, alignment=Qt.AlignmentFlag.AlignTop)
-        self.load_result_button = QPushButton("Load Result")
-        layout.addWidget(self.load_result_button, alignment=Qt.AlignmentFlag.AlignTop)
+        left_splitter = QSplitter(Qt.Orientation.Vertical)
+        left_splitter.setStretchFactor(0, 3)  # Make video view take more space
+        main_splitter.addWidget(left_splitter)
+        right_splitter = QSplitter(Qt.Orientation.Vertical)
+        right_splitter.setStretchFactor(0, 3)  # Make video view take more space
+        main_splitter.addWidget(right_splitter)
 
         # media
         self.video_view = VideoGraphicsView()
-        splitter = QSplitter(Qt.Orientation.Vertical)
-        splitter.addWidget(self.video_view)
-        splitter.setStretchFactor(0, 3)  # Make video view take more space
-        layout.addWidget(splitter)
+        left_splitter.addWidget(self.video_view)
 
         self.media_player = QMediaPlayer(self)
         self.video_view.set_media_player(self.media_player)
-        main_splitter.addWidget(splitter)
 
-        # Control buttons layout
-        control_layout = QHBoxLayout()
-        layout.addLayout(control_layout)
-
-        self.play_button = QPushButton("Play")
-        control_layout.addWidget(self.play_button)
-
-        self.pause_button = QPushButton("Pause")
-        control_layout.addWidget(self.pause_button)
 
         # Progress Bar
         self.progress_bar = QSlider(Qt.Orientation.Horizontal)
@@ -506,34 +494,55 @@ class VideoLoaderApp(QMainWindow):
         progress_bar_layout = QVBoxLayout()
         progress_bar_layout.addWidget(self.progress_bar)
 
-        # Message log
-        self.message_log = QTextEdit()
-        self.message_log.setReadOnly(True)
-        main_splitter.addWidget(self.message_log)
-        main_splitter.setStretchFactor(0, 1)
-
-        # ROI
-        control_panel = QHBoxLayout()
-        layout.addLayout(control_panel)
-        self.roi_button = QPushButton("Drag a ROI")
-        control_panel.addWidget(self.roi_button)
-
         # Plot View
         self.plot_view = PlotView()
-        splitter.addWidget(self.plot_view)
-        splitter.setStretchFactor(1, 1)
+        left_splitter.addWidget(self.plot_view)
+        left_splitter.setStretchFactor(1, 1)
 
-        splitter.addWidget(QWidget())
-        splitter.widget(2).setLayout(progress_bar_layout)
+        # left_splitter.addWidget(QWidget())
+        # left_splitter.widget(2).setLayout(progress_bar_layout)
+
+        # load button
+        load_layout = QHBoxLayout()
+        load_widget = QWidget()
+        load_widget.setLayout(load_layout)
+        right_splitter.addWidget(load_widget)
+
+
+        self.load_video_button = QPushButton("Load Video")
+        load_layout.addWidget(self.load_video_button)
+        self.load_result_button = QPushButton("Load Result")
+        load_layout.addWidget(self.load_result_button)
+
+        # Control buttons layout
+        control_group = QHBoxLayout()
+        control_widget = QWidget()
+        control_widget.setLayout(control_group)
+        right_splitter.addWidget(control_widget)
+
+        self.play_button = QPushButton("Play")
+        control_group.addWidget(self.play_button)
+
+        self.pause_button = QPushButton("Pause")
+        control_group.addWidget(self.pause_button)
+
+        # ROI
+        self.roi_button = QPushButton("Drag a ROI")
+        control_group.addWidget(self.roi_button)
 
         # Result process
         self.process_button = QPushButton("Process")
-        control_panel.addWidget(self.process_button)
+        control_group.addWidget(self.process_button)
 
         self.process_progress = QProgressBar(self)
         self.process_progress.setRange(0, 100)
         self.process_progress.setValue(0)
-        control_panel.addWidget(self.process_progress)
+        control_group.addWidget(self.process_progress)
+
+        # Message log
+        self.message_log = QTextEdit()
+        self.message_log.setReadOnly(True)
+        right_splitter.addWidget(self.message_log)
 
     def setup_controller(self):
         """controller for widgets"""
