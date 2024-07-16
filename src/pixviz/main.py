@@ -1,4 +1,5 @@
 import datetime
+import pickle
 import sys
 import traceback
 from pathlib import Path
@@ -380,7 +381,7 @@ class VideoLoaderApp(QMainWindow):
         self.cap: cv2.VideoCapture | None = None
         self.total_frames: int | None = None
         self.frame_rate: float | None = None
-        self.roi: RoiType | None = None
+        self.roi_list: list[RoiType] = []
 
         #
         self.setup_windows()
@@ -587,8 +588,9 @@ class VideoLoaderApp(QMainWindow):
     def show_roi_settings_dialog(self):
         dialog = RoiSettingsDialog(self)
         if dialog.exec() == QDialog.DialogCode.Accepted:
-            self.roi = dialog.get_roi_type()
-            self.log_message(f"ROI name: {self.roi.name}, Calculation method: {self.roi.function}")
+            roi = dialog.get_roi_type()
+            self.roi_list.append(roi)
+            self.log_message(f"ROI name: {roi.name}, Calculation method: {roi.function}")
 
     # =========== #
     # Message Log #
@@ -648,14 +650,15 @@ class VideoLoaderApp(QMainWindow):
         self.control_panel.addWidget(self.process_progress)
 
     def process_all_frames(self):
-        if self.roi is None:
+        if len(self.roi_list) == 0:
             self.log_message("Please set an ROI first.")
             return
 
         self.plot_view.clear_plot()
         self.update_frame_number(0)
 
-        self.frame_processor = FrameProcessor(self.cap, self.video_view.rect, self.roi.function)
+        # TODO open thread for multiple
+        self.frame_processor = FrameProcessor(self.cap, self.video_view.rect, self.roi_list[0].function)
         self.frame_processor.progress.connect(self.update_progress_and_frame)
         self.frame_processor.frame_processed.connect(self.update_plot)
         self.frame_processor.finished.connect(self.save_frame_values)
@@ -673,13 +676,19 @@ class VideoLoaderApp(QMainWindow):
         self.plot_view.update_plot(value)
 
     @pyqtSlot(list)
-    def save_frame_values(self, frame_values: np.ndarray):
+    def save_frame_values(self, frame_values: np.ndarray) -> None:
+        """save list[RoiType._asdict()] as pkl"""
         file = Path(self.video_path)
-        output = file.with_stem(f'{file.stem}_pixviz_{self.roi.name}').with_suffix('.pkl')
+        output = file.with_stem(f'{file.stem}_pixviz').with_suffix('.pkl')
 
-        roi = RoiType(self.roi.name, self.roi.function, data=frame_values)
-        roi.save(output)
-        self.log_message("Averaged pixel values saved to averaged_pixel_values.npy")
+        out = []
+        for roi in self.roi_list:
+            res = RoiType(roi.name, roi.function, data=np.array(frame_values))
+            out.append(res._asdict())
+
+        with Path(output).open('wb') as file:
+            pickle.dump(out, file)
+            self.log_message("Averaged pixel values saved to averaged_pixel_values.npy")
 
     def main(self):
         self.show()

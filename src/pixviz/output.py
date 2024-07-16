@@ -22,15 +22,6 @@ class RoiType(NamedTuple):
     def with_data(self, data: np.ndarray) -> Self:
         return self._replace(data=data)
 
-    def save(self, output: Path | str) -> None:
-        import pickle
-
-        if self.data is None:
-            raise ValueError('data is empty')
-
-        with Path(output).open('wb') as file:
-            pickle.dump(self._asdict(), file)
-
 
 def load_roi_results(file: Path | str) -> RoiType | list[RoiType]:
     with Path(file).open('rb') as f:
