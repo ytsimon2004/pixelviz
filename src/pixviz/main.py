@@ -132,7 +132,7 @@ class VideoGraphicsView(QGraphicsView):
         self.drawing_roi: bool = False
         self.roi_start_pos = None
         self.roi_rect_item = None
-        self.rect: QRectF | None = None
+        self.rect: QRectF | None = None  # TODO list of rect?
 
         self.pixmap_item = None
 
@@ -349,8 +349,8 @@ class PlotView(QWidget):
 
 
 class FrameProcessor(QThread):
-    progress = pyqtSignal(int, float)
-    """frame_number, result"""
+    progress = pyqtSignal(int)
+    """frame_number"""
     finished = pyqtSignal(list)
     """finish flag"""
 
@@ -381,7 +381,7 @@ class FrameProcessor(QThread):
                     result = np.nan
                 frame_values[frame_number] = result
 
-                self.progress.emit(frame_number, result)
+                self.progress.emit(frame_number)
             except Exception as exc:
                 print(f'Frame {frame_number} generated an exception: {exc}')
                 traceback.print_exc()
@@ -794,8 +794,8 @@ class VideoLoaderApp(QMainWindow):
         self.frame_processor.finished.connect(self.save_frame_values)
         self.frame_processor.start()
 
-    @pyqtSlot(int, float)
-    def update_progress_and_frame(self, frame_number: int, value: float):
+    @pyqtSlot(int)
+    def update_progress_and_frame(self, frame_number: int):
         progress_value = int((frame_number / self.total_frames) * 100)
         self.process_progress.setValue(progress_value)
         pos = int((frame_number / self.total_frames) * self.media_player.duration())
