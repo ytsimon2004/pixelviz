@@ -8,13 +8,13 @@ from typing import ClassVar
 import cv2
 import numpy as np
 from PyQt6.QtCore import Qt, QUrl, QRectF, pyqtSignal, QTimer, QThread, pyqtSlot
-from PyQt6.QtGui import QTextCursor, QWheelEvent, QPen, QImage, QColor, QPixmap, QPainter
+from PyQt6.QtGui import QTextCursor, QWheelEvent, QPen, QImage, QColor, QPixmap, QPainter, QKeyEvent
 from PyQt6.QtMultimedia import QMediaPlayer, QAudioOutput
 from PyQt6.QtMultimediaWidgets import QGraphicsVideoItem
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QPushButton, QFileDialog, QLabel, QVBoxLayout, QWidget, QHBoxLayout, QGraphicsView,
     QGraphicsScene, QSlider, QTextEdit, QGraphicsRectItem, QSplitter, QDialog, QLineEdit, QRadioButton, QButtonGroup,
-    QProgressBar
+    QProgressBar, QTableWidget, QTableWidgetItem
 )
 from matplotlib import pyplot as plt
 from matplotlib.backends.backend_qt import NavigationToolbar2QT
@@ -215,7 +215,7 @@ class VideoGraphicsView(QGraphicsView):
                 elif calculate_func == 'median':
                     calc_pixel = self.calculate_median_pixel_value(cropped_image)
                 else:
-                    raise KeyboardInterrupt(f'unknown calculation method: {calculate_func}!')
+                    raise ValueError(f'Unknown calculation method: {calculate_func}!')
 
                 self.roi_average_signal.emit(calc_pixel)
 
@@ -435,8 +435,11 @@ class VideoLoaderApp(QMainWindow):
     pause_button: QPushButton
 
     roi_button: QPushButton
+    delete_roi_button: QPushButton
 
     plot_view: PlotView
+
+    roi_table: QTableWidget
 
     #
     frame_processor: FrameProcessor
@@ -508,6 +511,12 @@ class VideoLoaderApp(QMainWindow):
         left_splitter.addWidget(QWidget())
         left_splitter.widget(2).setLayout(progress_bar_layout)
 
+        # Table Widget for ROI Details
+        self.roi_table = QTableWidget()
+        self.roi_table.setColumnCount(3)
+        self.roi_table.setHorizontalHeaderLabels(["Name", "Function", "Selected Time"])
+        right_splitter.addWidget(self.roi_table)
+
         # load button
         load_layout = QHBoxLayout()
         load_widget = QWidget()
@@ -534,6 +543,10 @@ class VideoLoaderApp(QMainWindow):
         # ROI
         self.roi_button = QPushButton("Drag a ROI")
         control_group.addWidget(self.roi_button)
+
+        # Delete ROI button
+        self.delete_roi_button = QPushButton("Delete ROI")
+        control_group.addWidget(self.delete_roi_button)
 
         # Result process
         self.process_button = QPushButton("Process")
@@ -600,6 +613,7 @@ class VideoLoaderApp(QMainWindow):
         self.play_button.clicked.connect(self.play_video)
         self.pause_button.clicked.connect(self.pause_video)
         self.process_button.clicked.connect(self.process_all_frames)
+        self.delete_roi_button.clicked.connect(self.delete_selected_roi)
 
         # media
         self.media_player.durationChanged.connect(self.update_duration)
@@ -689,9 +703,13 @@ class VideoLoaderApp(QMainWindow):
     def set_position(self, position: int):
         self.media_player.setPosition(position)
 
-    def keyPressEvent(self, event):
+    def keyPressEvent(self, event: QKeyEvent):
+        """keyboard event handle"""
+        if self.frame_rate is None:
+            return
+
         current_position = self.media_player.position()
-        frame_duration = 1000.0 / self.frame_rate  # duration of one frame in milliseconds
+        frame_duration = 1000.0 / self.frame_rate  # ms
 
         match event.key():
 
@@ -718,6 +736,32 @@ class VideoLoaderApp(QMainWindow):
             roi = dialog.get_roi_type()
             self.roi_list.append(roi)
             self.log_message(f"ROI name: {roi.name}, Calculation method: {roi.function}")
+            self.update_roi_table()
+
+    # ========= #
+    # ROI Table #
+    # ========= #
+
+    def update_roi_table(self):
+        self.roi_table.setRowCount(len(self.roi_list))
+        for row, roi in enumerate(self.roi_list):
+            self.roi_table.setItem(row, 0, QTableWidgetItem(roi.name))
+            self.roi_table.setItem(row, 1, QTableWidgetItem(roi.function))
+            self.roi_table.setItem(row, 2, QTableWidgetItem(datetime.datetime.now().strftime("%H:%M:%S")))
+
+    def delete_selected_roi(self):
+        selected_items = self.roi_table.selectedItems()
+        if not selected_items:
+            self.log_message("No ROI selected for deletion.")
+            return
+
+        selected_row = selected_items[0].row()
+        roi_name = self.roi_table.item(selected_row, 0).text()
+
+        self.roi_table.removeRow(selected_row)
+        self.roi_list = [roi for roi in self.roi_list if roi.name != roi_name]
+
+        self.log_message(f"Deleted ROI: {roi_name}")
 
     # =========== #
     # Message Log #
