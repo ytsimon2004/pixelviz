@@ -3,7 +3,7 @@ from typing import NamedTuple
 import numpy as np
 from typing_extensions import Self
 
-from core import PIXEL_CAL_FUNCTION
+from pixviz.core import PIXEL_CAL_FUNCTION
 
 __all__ = ['RoiType']
 

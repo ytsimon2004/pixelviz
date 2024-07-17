@@ -21,8 +21,11 @@ from matplotlib.backends.backend_qt import NavigationToolbar2QT
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
 
-from core import PIXEL_CAL_FUNCTION
+from pixviz.core import PIXEL_CAL_FUNCTION
 from pixviz.output import RoiType
+
+
+__all__ = ['run_gui']
 
 
 def log_message(message: str) -> None:
@@ -825,8 +828,12 @@ class VideoLoaderApp(QMainWindow):
         self.setFocus()
 
 
-if __name__ == "__main__":
+def run_gui():
     app = QApplication(sys.argv)
     window = VideoLoaderApp()
     window.main()
     sys.exit(app.exec())
+
+
+if __name__ == '__main__':
+    run_gui()
