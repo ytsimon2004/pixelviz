@@ -26,8 +26,7 @@ from pixviz.output import RoiType
 
 __all__ = ['run_gui']
 
-LOGGING_TYPE = Literal['INFO', 'IO', 'WARNING', 'ERROR']
-DEBUG_MODE = False
+LOGGING_TYPE = Literal['DEBUG', 'INFO', 'IO', 'WARNING', 'ERROR']
 
 
 def log_message(message: str, log_type: LOGGING_TYPE = 'INFO') -> None:
@@ -650,8 +649,7 @@ class VideoLoaderApp(QMainWindow):
         self.media_player.durationChanged.connect(self.update_duration)
         self.media_player.positionChanged.connect(self.update_position)
         self.progress_bar.sliderMoved.connect(self.set_position)
-        if DEBUG_MODE:
-            self.media_player.mediaStatusChanged.connect(self._handle_media_status)
+        self.media_player.mediaStatusChanged.connect(self._handle_media_status)
 
         # rois
         self.video_view.roi_complete_signal.connect(self.show_roi_settings_dialog)
@@ -667,7 +665,7 @@ class VideoLoaderApp(QMainWindow):
         if file_dialog.exec():
             file_path = file_dialog.selectedFiles()[0]
             self.media_player.setSource(QUrl.fromLocalFile(file_path))
-            self.log_message(f"Loaded Video: {file_path}")
+            self.log_message(f'Loaded Video: {file_path}', log_type='IO')
 
             self.video_path = file_path
             self.cap = cv2.VideoCapture(self.video_path)
@@ -680,7 +678,7 @@ class VideoLoaderApp(QMainWindow):
             dialog = FrameRateDialog(default_value=self.frame_rate)
             if dialog.exec() == QDialog.DialogCode.Accepted:
                 self.frame_rate = dialog.get_sampling_rate()
-                self.log_message(f"Sampling rate set to: {self.frame_rate} frames per second")
+                self.log_message(f'Sampling rate set to: {self.frame_rate} frames per second')
                 self.timer.start(int(1000 // self.frame_rate))
 
     def load_result(self):
@@ -690,35 +688,35 @@ class VideoLoaderApp(QMainWindow):
 
         if file_dialog.exec():
             file_path = file_dialog.selectedFiles()[0]
-            self.log_message(f"Loaded Result: {file_path}")
+            self.log_message(f'Loaded Result: {file_path}')
             self.plot_view.load_from_file(file_path)
 
     def play_video(self):
-        self.log_message("play")
+        self.log_message("play", log_type='DEBUG')
         self.media_player.play()
 
     def pause_video(self):
-        self.log_message("pause")
+        self.log_message("pause", log_type='DEBUG')
         self.media_player.pause()
 
     def _handle_media_status(self, status):
         match status:
             case QMediaPlayer.MediaStatus.EndOfMedia:
-                self.log_message("End of media reached")
+                self.log_message("End of media reached", log_type='DEBUG')
             case QMediaPlayer.MediaStatus.InvalidMedia:
-                self.log_message("Invalid media")
+                self.log_message("Invalid media", log_type='DEBUG')
             case QMediaPlayer.MediaStatus.NoMedia:
-                self.log_message("No media loaded")
+                self.log_message("No media loaded", log_type='DEBUG')
             case QMediaPlayer.MediaStatus.LoadingMedia:
-                self.log_message("Loading media...")
+                self.log_message("Loading media...", log_type='DEBUG')
             case QMediaPlayer.MediaStatus.LoadedMedia:
-                self.log_message("Media loaded")
+                self.log_message("Media loaded", log_type='DEBUG')
             case QMediaPlayer.MediaStatus.BufferedMedia:
-                self.log_message("Media buffered")
+                self.log_message("Media buffered", log_type='DEBUG')
             case QMediaPlayer.MediaStatus.StalledMedia:
-                self.log_message("Media playback stalled")
+                self.log_message("Media playback stalled", log_type='DEBUG')
             case _:
-                self.log_message(f'unknown {status}')
+                self.log_message(f'unknown {status}', log_type='DEBUG')
 
     def update_duration(self, duration: int):
         self.progress_bar.setRange(0, duration)
@@ -745,11 +743,11 @@ class VideoLoaderApp(QMainWindow):
         match event.key():
 
             case Qt.Key.Key_Right:
-                self.log_message("Right arrow key pressed")  # TODO bugfix receiver
+                self.log_message('Right arrow key pressed')  # TODO bugfix receiver
                 new_position = current_position + (10 * frame_duration)
                 self.set_position(int(new_position))
             case Qt.Key.Key_Left:
-                self.log_message("Left arrow key pressed")  # TODO bugfix receiver
+                self.log_message('Left arrow key pressed')  # TODO bugfix receiver
                 new_position = current_position - (10 * frame_duration)
                 self.set_position(int(new_position))
             case Qt.Key.Key_Space:
@@ -792,7 +790,7 @@ class VideoLoaderApp(QMainWindow):
     def delete_selected_roi(self):
         selected_items = self.roi_table.selectedItems()
         if not selected_items:
-            self.log_message("No ROI selected for deletion.")
+            self.log_message('No ROI selected for deletion.', log_type='ERROR')
             return
 
         selected_row = selected_items[0].row()
@@ -805,7 +803,7 @@ class VideoLoaderApp(QMainWindow):
 
     def process_all_frames(self):
         if len(self.roi_list) == 0:
-            self.log_message("Please set an ROI first.")
+            self.log_message('Please set an ROI first.', log_type='ERROR')
             return
 
         self.plot_view.clear_plot()
@@ -848,7 +846,7 @@ class VideoLoaderApp(QMainWindow):
 
         with Path(output).open('wb') as f:
             pickle.dump(dat, f)
-            self.log_message(f"Pixel intensity value saved to {output} with name: {[d['name'] for d in dat]}",
+            self.log_message(f"Pixel intensity value saved to: {output}, with name: {[d['name'] for d in dat]}",
                              log_type='IO')
 
     # =========== #
@@ -857,8 +855,24 @@ class VideoLoaderApp(QMainWindow):
 
     def log_message(self, message: str, log_type: LOGGING_TYPE = 'INFO') -> None:
         timestamp = datetime.datetime.now().strftime("%H:%M:%S")
-        self.message_log.append(f"[{timestamp}] [{log_type}] - {message}")
+        color = self._get_log_type_color(log_type)
+        log_entry = f'<span style="color:{color};">[{timestamp}] [{log_type}] - {message}</span><br>'
+        self.message_log.insertHtml(log_entry)
         self.message_log.moveCursor(QTextCursor.MoveOperation.End)
+
+    @staticmethod
+    def _get_log_type_color(log_type: LOGGING_TYPE) -> str:
+        match log_type:
+            case 'INFO':
+                return 'white'
+            case 'IO':
+                return 'cyan'
+            case 'WARNING':
+                return 'orange'
+            case 'ERROR':
+                return 'red'
+            case _:
+                return 'white'
 
     # === #
     # Run #
