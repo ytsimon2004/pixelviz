@@ -3,7 +3,7 @@ import pickle
 import sys
 import traceback
 from pathlib import Path
-from typing import ClassVar
+from typing import ClassVar, Literal
 
 import cv2
 import numpy as np
@@ -730,19 +730,25 @@ class VideoLoaderApp(QMainWindow):
     def process_frame(self):
         self.video_view.process_frame()
 
-    def show_roi_settings_dialog(self):
+    # ===================== #
+    # ROI Setting and Table #
+    # ===================== #
+
+    def show_roi_settings_dialog(self) -> None:
         dialog = RoiSettingsDialog(self)
         if dialog.exec() == QDialog.DialogCode.Accepted:
             roi = dialog.get_roi_type()
+
+            if roi.name in [existed_roi.name for existed_roi in self.roi_list]:
+                self.log_message(f'ROI name: {roi.name} already exist', log_type='ERROR')
+                return
+
             self.roi_list.append(roi)
+
             self.log_message(f"ROI name: {roi.name}, Calculation method: {roi.function}")
             self.update_roi_table()
 
-    # ========= #
-    # ROI Table #
-    # ========= #
-
-    def update_roi_table(self):
+    def update_roi_table(self) -> None:
         self.roi_table.setRowCount(len(self.roi_list))
         for row, roi in enumerate(self.roi_list):
             self.roi_table.setItem(row, 0, QTableWidgetItem(roi.name))
@@ -767,9 +773,9 @@ class VideoLoaderApp(QMainWindow):
     # Message Log #
     # =========== #
 
-    def log_message(self, message: str) -> None:
+    def log_message(self, message: str, log_type: Literal['INFO', 'IO', 'WARNING', 'ERROR'] = 'INFO') -> None:
         timestamp = datetime.datetime.now().strftime("%H:%M:%S")
-        self.message_log.append(f"[{timestamp}] - {message}")
+        self.message_log.append(f"[{timestamp}] [{log_type}] - {message}")
         self.message_log.moveCursor(QTextCursor.MoveOperation.End)
 
     def start_drawing_roi(self):
