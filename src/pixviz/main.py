@@ -24,12 +24,14 @@ from matplotlib.figure import Figure
 from pixviz.core import PIXEL_CAL_FUNCTION
 from pixviz.output import RoiType
 
-
 __all__ = ['run_gui']
 
+LOGGING_TYPE = Literal['INFO', 'IO', 'WARNING', 'ERROR']
+DEBUG_MODE = False
 
-def log_message(message: str) -> None:
-    VideoLoaderApp.INSTANCE.log_message(message)
+
+def log_message(message: str, log_type: LOGGING_TYPE = 'INFO') -> None:
+    VideoLoaderApp.INSTANCE.log_message(message, log_type)
 
 
 class FrameRateDialog(QDialog):
@@ -86,6 +88,7 @@ class RoiSettingsDialog(QDialog):
         self.button_group = QButtonGroup(self)
         self.button_group.addButton(self.mean_button)
         self.button_group.addButton(self.median_button)
+        self.mean_button.setChecked(True)
 
         self.layout.addWidget(self.mean_button)
         self.layout.addWidget(self.median_button)
@@ -134,8 +137,8 @@ class VideoGraphicsView(QGraphicsView):
         # ROI
         self.drawing_roi: bool = False
         self.roi_start_pos = None
-        self.roi_rect_item = None
-        self.rect: QRectF | None = None  # TODO list of rect?
+        self.roi_rect_item: QGraphicsRectItem | None = None
+        self.rect_list: list[QRectF] = []
 
         self.pixmap_item = None
 
@@ -190,13 +193,16 @@ class VideoGraphicsView(QGraphicsView):
     def mouseMoveEvent(self, event):
         if self.drawing_roi and self.roi_start_pos:
             current_pos = self.mapToScene(event.pos())
-            self.rect = QRectF(self.roi_start_pos, current_pos).normalized()
-            self.roi_rect_item.setRect(self.rect)
+            rect = QRectF(self.roi_start_pos, current_pos).normalized()
+            self.roi_rect_item.setRect(rect)
 
     def mouseReleaseEvent(self, event):
         if self.drawing_roi:
             self.drawing_roi = False
-            self.roi_start_pos = None
+            current_pos = self.mapToScene(event.pos())
+            rect = QRectF(self.roi_start_pos, current_pos).normalized()
+            self.roi_rect_item.setRect(rect)
+            self.rect_list.append(rect)  # Append the finalized rectangle
             self.roi_complete_signal.emit()
 
     def start_drawing_roi(self):
@@ -353,18 +359,18 @@ class PlotView(QWidget):
 
 class FrameProcessor(QThread):
     progress = pyqtSignal(int)
-    """frame_number"""
-    finished = pyqtSignal(list)
-    """finish flag"""
+    """Frame Number"""
+    results = pyqtSignal(list)
+    """Processed Result"""
 
     def __init__(self,
                  cap: cv2.VideoCapture,
-                 roi_rect: QRectF,
-                 calculate_func: PIXEL_CAL_FUNCTION):
+                 rect_list: list[QRectF],
+                 calculate_func: list[PIXEL_CAL_FUNCTION]):
 
         super().__init__()
         self.cap = cap
-        self.roi_rect = roi_rect
+        self.rect_list = rect_list
         self.calculate_func = calculate_func
 
         self.total_frames = int(self.cap.get(cv2.CAP_PROP_FRAME_COUNT))
@@ -372,54 +378,51 @@ class FrameProcessor(QThread):
 
         self.frame_results: np.ndarray | None = None
 
+    @property
+    def n_rois(self) -> int:
+        return len(self.rect_list)
+
     def run(self):
-        frame_values = np.full(self.total_frames, np.nan)
+        frame_values = np.full((self.n_rois, self.total_frames), np.nan)  # (R, F)
 
         self.cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
         for frame_number in range(self.total_frames):
             try:
-                result = self.process_single_frame(frame_number)
+                result = self.process_single_frame()  # (R,)
 
-                if result is None:
-                    result = np.nan
-                frame_values[frame_number] = result
+                frame_values[:, frame_number] = result
 
                 self.progress.emit(frame_number)
-            except Exception as exc:
-                print(f'Frame {frame_number} generated an exception: {exc}')
+            except Exception as e:
+                log_message(f'Frame {frame_number} generated an exception: {e}', log_type='ERROR')
                 traceback.print_exc()
 
-        self.finished.emit(frame_values)
+        self.results.emit(frame_values)
 
-    def process_single_frame(self, frame_number):
-        try:
-            # self.cap.set(cv2.CAP_PROP_POS_FRAMES, frame_number)
-            ret, frame = self.cap.read()
-            if not ret or frame is None:
-                print(f"Skipping frame {frame_number} due to read failure")
-                return None
+    def process_single_frame(self) -> list[np.floating]:
+        _, frame = self.cap.read()
 
-            roi_frame = frame[int(self.roi_rect.top()):int(self.roi_rect.bottom()),
-                        int(self.roi_rect.left()):int(self.roi_rect.right())]
+        results = []
+        for i, rect in enumerate(self.rect_list):
+            top = int(rect.top())
+            bottom = int(rect.bottom())
+            left = int(rect.left())
+            right = int(rect.right())
+            roi_frame = frame[top:bottom, left:right]
 
-            if roi_frame.size == 0:
-                print(f"Skipping frame {frame_number} due to empty ROI frame")
-                return None
+            gray_roi = cv2.cvtColor(roi_frame, cv2.COLOR_BGR2GRAY)
 
-            frame = cv2.cvtColor(roi_frame, cv2.COLOR_BGR2GRAY)
+            if self.calculate_func[i] == 'mean':
+                results.append(np.mean(gray_roi))
+            elif self.calculate_func[i] == 'median':
+                results.append(np.median(gray_roi))
 
-            if self.calculate_func == 'mean':
-                return np.mean(frame)
-            elif self.calculate_func == 'median':
-                return np.median(frame)
-        except Exception as e:
-            print(f"Exception in processing frame {frame_number}: {e}")
-            traceback.print_exc()
-            return None
+        return results
 
 
-DEBUG_MODE = True
-
+# ======== #
+# Main App #
+# ======== #
 
 class VideoLoaderApp(QMainWindow):
     INSTANCE: ClassVar['VideoLoaderApp']
@@ -776,7 +779,7 @@ class VideoLoaderApp(QMainWindow):
     # Message Log #
     # =========== #
 
-    def log_message(self, message: str, log_type: Literal['INFO', 'IO', 'WARNING', 'ERROR'] = 'INFO') -> None:
+    def log_message(self, message: str, log_type: LOGGING_TYPE = 'INFO') -> None:
         timestamp = datetime.datetime.now().strftime("%H:%M:%S")
         self.message_log.append(f"[{timestamp}] [{log_type}] - {message}")
         self.message_log.moveCursor(QTextCursor.MoveOperation.End)
@@ -792,13 +795,19 @@ class VideoLoaderApp(QMainWindow):
         self.plot_view.clear_plot()
         self.update_frame_number(0)
 
-        self.frame_processor = FrameProcessor(self.cap, self.video_view.rect, self.roi_list[0].function)
+        funcs = [roi.function for roi in self.roi_list]
+        self.frame_processor = FrameProcessor(self.cap, self.video_view.rect_list, funcs)
         self.frame_processor.progress.connect(self.update_progress_and_frame)
-        self.frame_processor.finished.connect(self.save_frame_values)
+        self.frame_processor.results.connect(self.save_frame_values)
         self.frame_processor.start()
 
     @pyqtSlot(int)
     def update_progress_and_frame(self, frame_number: int):
+        """
+
+        :param frame_number:
+        :return:
+        """
         progress_value = int((frame_number / self.total_frames) * 100)
         self.process_progress.setValue(progress_value)
         pos = int((frame_number / self.total_frames) * self.media_player.duration())
@@ -810,13 +819,16 @@ class VideoLoaderApp(QMainWindow):
 
     @pyqtSlot(list)
     def save_frame_values(self, frame_values: np.ndarray) -> None:
-        """save list[RoiType._asdict()] as pkl"""
+        """save list[RoiType._asdict()] as pkl
+
+        :param frame_values: (R, F)
+        """
         file = Path(self.video_path)
         output = file.with_stem(f'{file.stem}_pixviz').with_suffix('.pkl')
 
         out = []
-        for roi in self.roi_list:
-            res = RoiType(roi.name, roi.function, data=np.array(frame_values))
+        for i, roi in enumerate(self.roi_list):
+            res = RoiType(roi.name, roi.function, data=np.array(frame_values[i]))
             out.append(res._asdict())
 
         with Path(output).open('wb') as file:
