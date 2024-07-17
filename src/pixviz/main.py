@@ -67,44 +67,61 @@ class FrameRateDialog(QDialog):
 
 
 class RoiSettingsDialog(QDialog):
-    def __init__(self, parent=None):
-        super().__init__(parent)
+    layout: QVBoxLayout
+    name_label: QLabel
+    name_input: QLineEdit
+    selection_label: QLabel
+    method_label: QLabel
+    mean_button: QRadioButton
+    median_button: QRadioButton
+    button_group: QButtonGroup
+    button_box: QHBoxLayout
+    ok_button: QPushButton
+    cancel_button: QPushButton
+
+    def __init__(self, selection: QRectF):
+        super().__init__()
+
+        self.selection = selection
+        self.setup_layout()
+        self.setup_controller()
+
+    def setup_layout(self) -> None:
         self.setWindowTitle("ROI Settings")
-
         self.layout = QVBoxLayout()
-
         self.name_label = QLabel("Enter ROI name:")
         self.layout.addWidget(self.name_label)
 
         self.name_input = QLineEdit()
         self.layout.addWidget(self.name_input)
 
+        self.selection_label = QLabel(f'Selected_area: {self.selection}')
+        self.layout.addWidget(self.selection_label)
+
         self.method_label = QLabel("Select pixel calculation method:")
         self.layout.addWidget(self.method_label)
 
         self.mean_button = QRadioButton("Mean")
         self.median_button = QRadioButton("Median")
-
-        self.button_group = QButtonGroup(self)
+        self.button_group = QButtonGroup()
         self.button_group.addButton(self.mean_button)
         self.button_group.addButton(self.median_button)
         self.mean_button.setChecked(True)
-
         self.layout.addWidget(self.mean_button)
         self.layout.addWidget(self.median_button)
 
         self.button_box = QHBoxLayout()
-
         self.ok_button = QPushButton("OK")
-        self.ok_button.clicked.connect(self.accept)
         self.button_box.addWidget(self.ok_button)
-
         self.cancel_button = QPushButton("Cancel")
-        self.cancel_button.clicked.connect(self.reject)
         self.button_box.addWidget(self.cancel_button)
 
         self.layout.addLayout(self.button_box)
         self.setLayout(self.layout)
+
+    def setup_controller(self) -> None:
+        self.ok_button.clicked.connect(self.accept)
+        self.cancel_button.clicked.connect(self.reject)
 
     def get_calculated_func(self) -> PIXEL_CAL_FUNCTION:
         if self.mean_button.isChecked():
@@ -113,7 +130,9 @@ class RoiSettingsDialog(QDialog):
             return 'median'
 
     def get_roi_type(self) -> RoiType:
-        return RoiType(self.name_input.text(), self.get_calculated_func())
+        return RoiType(self.name_input.text(),
+                       self.selection,
+                       self.get_calculated_func())
 
 
 class VideoGraphicsView(QGraphicsView):
@@ -365,13 +384,11 @@ class FrameProcessor(QThread):
 
     def __init__(self,
                  cap: cv2.VideoCapture,
-                 rect_list: list[QRectF],
-                 calculate_func: list[PIXEL_CAL_FUNCTION]):
+                 roi_list: list[RoiType]):
 
         super().__init__()
         self.cap = cap
-        self.rect_list = rect_list
-        self.calculate_func = calculate_func
+        self.roi_list = roi_list
 
         self.total_frames = int(self.cap.get(cv2.CAP_PROP_FRAME_COUNT))
         self.frame_rate = self.cap.get(cv2.CAP_PROP_FPS)
@@ -380,7 +397,15 @@ class FrameProcessor(QThread):
 
     @property
     def n_rois(self) -> int:
-        return len(self.rect_list)
+        return len(self.roi_list)
+
+    @property
+    def selection_list(self) -> list[QRectF]:
+        return [roi.selection_area for roi in self.roi_list]
+
+    @property
+    def calc_func_list(self) -> PIXEL_CAL_FUNCTION:
+        return [roi.function for roi in self.roi_list]
 
     def run(self):
         frame_values = np.full((self.n_rois, self.total_frames), np.nan)  # (R, F)
@@ -403,7 +428,7 @@ class FrameProcessor(QThread):
         _, frame = self.cap.read()
 
         results = []
-        for i, rect in enumerate(self.rect_list):
+        for i, rect in enumerate(self.selection_list):
             top = int(rect.top())
             bottom = int(rect.bottom())
             left = int(rect.left())
@@ -412,9 +437,9 @@ class FrameProcessor(QThread):
 
             gray_roi = cv2.cvtColor(roi_frame, cv2.COLOR_BGR2GRAY)
 
-            if self.calculate_func[i] == 'mean':
+            if self.calc_func_list[i] == 'mean':
                 results.append(np.mean(gray_roi))
-            elif self.calculate_func[i] == 'median':
+            elif self.calc_func_list[i] == 'median':
                 results.append(np.median(gray_roi))
 
         return results
@@ -520,7 +545,7 @@ class VideoLoaderApp(QMainWindow):
         # Table Widget for ROI Details
         self.roi_table = QTableWidget()
         self.roi_table.setColumnCount(3)
-        self.roi_table.setHorizontalHeaderLabels(["Name", "Function", "Selected Time"])
+        self.roi_table.setHorizontalHeaderLabels(["Name", "Selection", "Function"])
         right_splitter.addWidget(self.roi_table)
 
         # load button
@@ -547,7 +572,7 @@ class VideoLoaderApp(QMainWindow):
         control_group.addWidget(self.pause_button)
 
         # ROI
-        self.roi_button = QPushButton("Drag a ROI")
+        self.roi_button = QPushButton("Drag a Rect ROI")
         control_group.addWidget(self.roi_button)
 
         # Delete ROI button
@@ -740,8 +765,11 @@ class VideoLoaderApp(QMainWindow):
     # ROI Setting and Table #
     # ===================== #
 
+    def start_drawing_roi(self):
+        self.video_view.start_drawing_roi()
+
     def show_roi_settings_dialog(self) -> None:
-        dialog = RoiSettingsDialog(self)
+        dialog = RoiSettingsDialog(self.video_view.rect_list[-1])  # TODO check, last one from append
         if dialog.exec() == QDialog.DialogCode.Accepted:
             roi = dialog.get_roi_type()
 
@@ -758,8 +786,8 @@ class VideoLoaderApp(QMainWindow):
         self.roi_table.setRowCount(len(self.roi_list))
         for row, roi in enumerate(self.roi_list):
             self.roi_table.setItem(row, 0, QTableWidgetItem(roi.name))
-            self.roi_table.setItem(row, 1, QTableWidgetItem(roi.function))
-            self.roi_table.setItem(row, 2, QTableWidgetItem(datetime.datetime.now().strftime("%H:%M:%S")))
+            self.roi_table.setItem(row, 1, QTableWidgetItem(str(roi.selection_area)))
+            self.roi_table.setItem(row, 2, QTableWidgetItem(roi.function))
 
     def delete_selected_roi(self):
         selected_items = self.roi_table.selectedItems()
@@ -775,18 +803,6 @@ class VideoLoaderApp(QMainWindow):
 
         self.log_message(f"Deleted ROI: {roi_name}")
 
-    # =========== #
-    # Message Log #
-    # =========== #
-
-    def log_message(self, message: str, log_type: LOGGING_TYPE = 'INFO') -> None:
-        timestamp = datetime.datetime.now().strftime("%H:%M:%S")
-        self.message_log.append(f"[{timestamp}] [{log_type}] - {message}")
-        self.message_log.moveCursor(QTextCursor.MoveOperation.End)
-
-    def start_drawing_roi(self):
-        self.video_view.start_drawing_roi()
-
     def process_all_frames(self):
         if len(self.roi_list) == 0:
             self.log_message("Please set an ROI first.")
@@ -795,8 +811,7 @@ class VideoLoaderApp(QMainWindow):
         self.plot_view.clear_plot()
         self.update_frame_number(0)
 
-        funcs = [roi.function for roi in self.roi_list]
-        self.frame_processor = FrameProcessor(self.cap, self.video_view.rect_list, funcs)
+        self.frame_processor = FrameProcessor(self.cap, self.roi_list)
         self.frame_processor.progress.connect(self.update_progress_and_frame)
         self.frame_processor.results.connect(self.save_frame_values)
         self.frame_processor.start()
@@ -826,14 +841,28 @@ class VideoLoaderApp(QMainWindow):
         file = Path(self.video_path)
         output = file.with_stem(f'{file.stem}_pixviz').with_suffix('.pkl')
 
-        out = []
+        dat = []
         for i, roi in enumerate(self.roi_list):
-            res = RoiType(roi.name, roi.function, data=np.array(frame_values[i]))
-            out.append(res._asdict())
+            res = RoiType(roi.name, roi.selection_area, roi.function, data=np.array(frame_values[i]))
+            dat.append(res._asdict())
 
-        with Path(output).open('wb') as file:
-            pickle.dump(out, file)
-            self.log_message("Averaged pixel values saved to averaged_pixel_values.npy")
+        with Path(output).open('wb') as f:
+            pickle.dump(dat, f)
+            self.log_message(f"Pixel intensity value saved to {output} with name: {[d['name'] for d in dat]}",
+                             log_type='IO')
+
+    # =========== #
+    # Message Log #
+    # =========== #
+
+    def log_message(self, message: str, log_type: LOGGING_TYPE = 'INFO') -> None:
+        timestamp = datetime.datetime.now().strftime("%H:%M:%S")
+        self.message_log.append(f"[{timestamp}] [{log_type}] - {message}")
+        self.message_log.moveCursor(QTextCursor.MoveOperation.End)
+
+    # === #
+    # Run #
+    # === #
 
     def main(self):
         self.show()
