@@ -403,7 +403,7 @@ class FrameProcessor(QThread):
         return [roi.selection_area for roi in self.roi_list]
 
     @property
-    def calc_func_list(self) -> PIXEL_CAL_FUNCTION:
+    def calc_func_list(self) -> list[PIXEL_CAL_FUNCTION]:
         return [roi.function for roi in self.roi_list]
 
     def run(self):
@@ -630,6 +630,14 @@ class VideoLoaderApp(QMainWindow):
         QProgressBar::chunk {
             background-color: #05B8CC;
         }
+        QTableWidget::item {
+            background-color: #2E2E2E;
+            color: white;
+        }
+        QTableWidget::item:selected {
+            background-color: #555;
+            color: white;
+        }
         """
         self.setStyleSheet(dark_stylesheet)
         plt.style.use('dark_background')
@@ -853,7 +861,10 @@ class VideoLoaderApp(QMainWindow):
     # Message Log #
     # =========== #
 
-    def log_message(self, message: str, log_type: LOGGING_TYPE = 'INFO') -> None:
+    def log_message(self, message: str, log_type: LOGGING_TYPE = 'INFO', debug_mode: bool = False) -> None:
+        if not debug_mode and log_type == 'DEBUG':
+            return
+
         timestamp = datetime.datetime.now().strftime("%H:%M:%S")
         color = self._get_log_type_color(log_type)
         log_entry = f'<span style="color:{color};">[{timestamp}] [{log_type}] - {message}</span><br>'
