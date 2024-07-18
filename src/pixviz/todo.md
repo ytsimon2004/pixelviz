@@ -1,4 +1,4 @@
-# Feature Enhancement 
+# Feature
 
 - [ ] add some adjustment for image quality
 - [ ] load back the processed results with optional video, and run with sync
@@ -10,3 +10,8 @@
 
 - [ ] fix the keyboard event receiver
 - [ ] plot view sync issue, with multiple roi color-coded
+
+
+# Enhancement
+
+- [ ] resize issue after load video

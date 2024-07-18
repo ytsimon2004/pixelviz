@@ -21,7 +21,7 @@ from matplotlib.backends.backend_qt import NavigationToolbar2QT
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
 
-from pixviz.core import PIXEL_CAL_FUNCTION
+from pixviz.core import PIXEL_CAL_FUNCTION, compute_pixel_intensity
 from pixviz.output import RoiType
 
 __all__ = ['run_gui']
@@ -230,21 +230,15 @@ class VideoGraphicsView(QGraphicsView):
             self.scene().removeItem(self.roi_rect_item)
             self.roi_rect_item = None
 
-    def process_frame(self, calculate_func: str = 'mean') -> None:
-        if self.roi_rect_item:
+    def process_frame(self, calculate_func: PIXEL_CAL_FUNCTION = 'mean') -> None:
+        if self.roi_rect_item and not self.drawing_roi:
             image = self.grab_frame()
             if image:
                 roi_rect = self.roi_rect_item.rect().toRect()
                 cropped_image = image.copy(roi_rect)
 
-                if calculate_func == 'mean':
-                    calc_pixel = self.calculate_average_pixel_value(cropped_image)
-                elif calculate_func == 'median':
-                    calc_pixel = self.calculate_median_pixel_value(cropped_image)
-                else:
-                    raise ValueError(f'Unknown calculation method: {calculate_func}!')
-
-                self.roi_average_signal.emit(calc_pixel)
+                ret = compute_pixel_intensity(cropped_image, calculate_func)
+                self.roi_average_signal.emit(ret)
 
     def grab_frame(self) -> QImage:
         # Grab the current frame from the video_item
@@ -253,34 +247,6 @@ class VideoGraphicsView(QGraphicsView):
         self.video_item.paint(painter, None, None)
         painter.end()
         return pixmap.toImage()
-
-    @staticmethod
-    def calculate_average_pixel_value(image: QImage):
-        total_pixels = image.width() * image.height()
-        if total_pixels == 0:
-            return 0
-
-        total_intensity = 0
-        for x in range(image.width()):
-            for y in range(image.height()):
-                pixel = QColor(image.pixel(x, y))
-                intensity = (pixel.red() + pixel.green() + pixel.blue()) / 3
-                total_intensity += intensity
-
-        return total_intensity / total_pixels
-
-    @staticmethod
-    def calculate_median_pixel_value(image: QImage):
-        intensities = []
-        for x in range(image.width()):
-            for y in range(image.height()):
-                pixel = QColor(image.pixel(x, y))
-                intensity = (pixel.red() + pixel.green() + pixel.blue()) / 3
-                intensities.append(intensity)
-
-        if intensities:
-            return np.median(intensities)
-        return 0
 
 
 class PlotView(QWidget):
@@ -344,7 +310,7 @@ class PlotView(QWidget):
         self.canvas.draw()
 
     def load_from_file(self, file: str) -> None:
-
+        """TODO fix"""
         log_message(f'Plot view Load result from {file}')
 
         ret = []
@@ -383,7 +349,8 @@ class FrameProcessor(QThread):
 
     def __init__(self,
                  cap: cv2.VideoCapture,
-                 roi_list: list[RoiType]):
+                 roi_list: list[RoiType],
+                 view_size: tuple[int, int]):
 
         super().__init__()
         self.cap = cap
@@ -392,6 +359,7 @@ class FrameProcessor(QThread):
         self.total_frames = int(self.cap.get(cv2.CAP_PROP_FRAME_COUNT))
         self.frame_rate = self.cap.get(cv2.CAP_PROP_FPS)
 
+        self.view_size = view_size
         self.frame_results: np.ndarray | None = None
 
     @property
@@ -411,35 +379,35 @@ class FrameProcessor(QThread):
 
         self.cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
         for frame_number in range(self.total_frames):
+
             try:
                 result = self.process_single_frame()  # (R,)
-
                 frame_values[:, frame_number] = result
-
                 self.progress.emit(frame_number)
+
             except Exception as e:
                 log_message(f'Frame {frame_number} generated an exception: {e}', log_type='ERROR')
                 traceback.print_exc()
 
         self.results.emit(frame_values)
 
-    def process_single_frame(self) -> list[np.floating]:
+    def process_single_frame(self) -> list[float]:
         _, frame = self.cap.read()
+
+        frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        origin_height, origin_width, *_ = frame.shape
+        factor_width = origin_width / self.view_size[0]
+        factor_height = origin_height / self.view_size[1]
 
         results = []
         for i, rect in enumerate(self.selection_list):
-            top = int(rect.top())
-            bottom = int(rect.bottom())
-            left = int(rect.left())
-            right = int(rect.right())
+            top = int(rect.top() * factor_height)
+            bottom = int(rect.bottom() * factor_height)
+            left = int(rect.left() * factor_width)
+            right = int(rect.right() * factor_width)
             roi_frame = frame[top:bottom, left:right]
 
-            gray_roi = cv2.cvtColor(roi_frame, cv2.COLOR_BGR2GRAY)
-
-            if self.calc_func_list[i] == 'mean':
-                results.append(np.mean(gray_roi))
-            elif self.calc_func_list[i] == 'median':
-                results.append(np.median(gray_roi))
+            results.append(compute_pixel_intensity(roi_frame, self.calc_func_list[i]))
 
         return results
 
@@ -497,6 +465,10 @@ class VideoLoaderApp(QMainWindow):
 
     def setup_layout(self):
         self._set_dark_theme()
+
+        # message log
+        self.message_log = QTextEdit()
+        self.message_log.setReadOnly(True)
 
         # windows
         self.setWindowTitle("Video Loader")
@@ -587,9 +559,6 @@ class VideoLoaderApp(QMainWindow):
         self.process_progress.setValue(0)
         control_group.addWidget(self.process_progress)
 
-        # Message log
-        self.message_log = QTextEdit()
-        self.message_log.setReadOnly(True)
         right_splitter.addWidget(self.message_log)
 
     def _set_dark_theme(self):
@@ -688,6 +657,16 @@ class VideoLoaderApp(QMainWindow):
                 self.frame_rate = dialog.get_sampling_rate()
                 self.log_message(f'Sampling rate set to: {self.frame_rate} frames per second')
                 self.timer.start(int(1000 // self.frame_rate))
+
+    @property
+    def video_item_size(self) -> tuple[int, int]:
+        """
+        Get ``QGraphicsVideoItem`` resized width and height
+
+        :return: width and height
+        """
+        size = self.video_view.video_item.size()
+        return size.width(), size.height()
 
     def load_result(self):
         file_dialog = QFileDialog(self)
@@ -817,7 +796,7 @@ class VideoLoaderApp(QMainWindow):
         self.plot_view.clear_plot()
         self.update_frame_number(0)
 
-        self.frame_processor = FrameProcessor(self.cap, self.roi_list)
+        self.frame_processor = FrameProcessor(self.cap, self.roi_list, self.video_item_size)
         self.frame_processor.progress.connect(self.update_progress_and_frame)
         self.frame_processor.results.connect(self.save_frame_values)
         self.frame_processor.start()
@@ -861,15 +840,20 @@ class VideoLoaderApp(QMainWindow):
     # Message Log #
     # =========== #
 
-    def log_message(self, message: str, log_type: LOGGING_TYPE = 'INFO', debug_mode: bool = False) -> None:
+    def log_message(self, message: str, log_type: LOGGING_TYPE = 'INFO', debug_mode: bool = True) -> None:
         if not debug_mode and log_type == 'DEBUG':
             return
 
         timestamp = datetime.datetime.now().strftime("%H:%M:%S")
-        color = self._get_log_type_color(log_type)
-        log_entry = f'<span style="color:{color};">[{timestamp}] [{log_type}] - {message}</span><br>'
-        self.message_log.insertHtml(log_entry)
-        self.message_log.moveCursor(QTextCursor.MoveOperation.End)
+
+        if self.message_log is None:
+            print(message)
+        else:
+            color = self._get_log_type_color(log_type)
+            log_entry = f'<span style="color:{color};">[{timestamp}] [{log_type}] - {message}</span><br>'
+
+            self.message_log.insertHtml(log_entry)
+            self.message_log.moveCursor(QTextCursor.MoveOperation.End)
 
     @staticmethod
     def _get_log_type_color(log_type: LOGGING_TYPE) -> str:
