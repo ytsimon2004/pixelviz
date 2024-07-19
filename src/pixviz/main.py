@@ -38,6 +38,7 @@ class FrameRateDialog(QDialog):
     def __init__(self, default_value: float):
         super().__init__()
         self.setWindowTitle("Set Sampling Rate")
+        self._set_black_theme()
 
         self.layout = QVBoxLayout()
 
@@ -61,6 +62,28 @@ class FrameRateDialog(QDialog):
 
         self.layout.addLayout(self.button_box)
         self.setLayout(self.layout)
+
+    def _set_black_theme(self) -> None:
+        dark_style_theme = """
+        QDialog {
+            background-color: #2E2E2E;
+            color: white;
+        }
+        QPushButton {
+            background-color: #444;
+            border: 1px solid #555;
+            padding: 5px;
+        }
+        QPushButton:hover {
+            background-color: #555;
+        }
+        QLineEdit, QLabel {
+            background-color: #444;
+            border: 1px solid #555;
+            color: white;
+        }
+        """
+        self.setStyleSheet(dark_style_theme)
 
     def get_sampling_rate(self) -> float:
         return float(self.input.text())
@@ -89,6 +112,7 @@ class RoiSettingsDialog(QDialog):
 
     def setup_layout(self) -> None:
         self.setWindowTitle("ROI Settings")
+        self._set_dark_theme()
         self.layout = QVBoxLayout()
         self.name_label = QLabel("Enter ROI name:")
         self.layout.addWidget(self.name_label)
@@ -119,6 +143,28 @@ class RoiSettingsDialog(QDialog):
 
         self.layout.addLayout(self.button_box)
         self.setLayout(self.layout)
+
+    def _set_dark_theme(self) -> None:
+        dark_stylesheet = """
+        QDialog {
+            background-color: #2E2E2E;
+            color: white;
+        }
+        QPushButton {
+            background-color: #444;
+            border: 1px solid #555;
+            padding: 5px;
+        }
+        QPushButton:hover {
+            background-color: #555;
+        }
+        QLineEdit, QLabel, QRadioButton {
+            background-color: #444;
+            border: 1px solid #555;
+            color: white;
+        }
+        """
+        self.setStyleSheet(dark_stylesheet)
 
     def setup_controller(self) -> None:
         self.ok_button.clicked.connect(self._accept)
@@ -174,9 +220,6 @@ class VideoGraphicsView(QGraphicsView):
         self.roi_start_pos = None
         self.current_roi_rect_item: QGraphicsRectItem | None = None
         self.roi_object: dict[str, RoiLabelObject] = {}
-        # self.roi_rect_items: list[QGraphicsRectItem] = []
-        # self.roi_text_items: list[QGraphicsTextItem] = []
-        # self.rect_list: list[QRectF] = []
 
         self.pixmap_item = None
 
@@ -242,7 +285,7 @@ class VideoGraphicsView(QGraphicsView):
             self.current_roi_rect_item.setRect(rect)
             roi_object = RoiLabelObject()
             roi_object.rect_item = self.current_roi_rect_item
-            self.current_roi_rect_item = None
+            # self.current_roi_rect_item = None
             self.roi_complete_signal.emit(roi_object)
 
     def start_drawing_roi(self):
@@ -254,11 +297,14 @@ class VideoGraphicsView(QGraphicsView):
         if len(self.roi_object) != 0 and not self.drawing_roi:
             image = self.grab_frame()
             if image:
-                roi_rect = self.current_roi_rect_item.rect().toRect()
-                cropped_image = image.copy(roi_rect)
+                signal = {}
+                for name, roi in self.roi_object.items():
+                    roi_rect = roi.rect_item.rect().toRect()
+                    cropped_image = image.copy(roi_rect)
+                    dat = compute_pixel_intensity(cropped_image, calculate_func)
+                    signal[name] = dat
 
-                ret = compute_pixel_intensity(cropped_image, calculate_func)
-                self.roi_average_signal.emit(ret)
+                self.roi_average_signal.emit(signal)
 
     def grab_frame(self) -> QImage:
         """Grab the current frame from the video_item"""
@@ -279,8 +325,10 @@ class PlotView(QWidget):
         self.layout.addWidget(self.toolbar)
         self.layout.addWidget(self.canvas)
 
-        self.x_data = []
-        self.y_data = []
+        # for realtime plot
+        self.realtime_proc: bool = True
+        self.x_data = {}
+        self.y_data = {}
 
         self._roi_lines: dict[str, Line2D] = {}
 
@@ -289,13 +337,26 @@ class PlotView(QWidget):
         self.ax.set_ylabel('Pixel Intensity')
 
     def add_roi_line(self, roi_name: str, **kwargs):
-        self._roi_lines[roi_name] = self.ax.plot([], [], **kwargs)[0]
+        self._roi_lines[roi_name] = self.ax.plot([], [], label=roi_name, **kwargs)[0]
+        self.x_data[roi_name] = []
+        self.y_data[roi_name] = []
+        self.ax.legend()
 
     def delete_roi_line(self, roi_name: str):
         try:
             del self._roi_lines[roi_name]
+            del self.x_data[roi_name]
+            del self.y_data[roi_name]
         except KeyError:
             log_message(f'{roi_name} not exist', log_type='ERROR')
+
+    def clear_plot(self):
+        self.x_data = {}
+        self.y_data = {}
+
+        for name, line in list(self._roi_lines.items()):
+            line.remove()
+            del self._roi_lines[name]
 
     def update_plot(self,
                     frame_result: dict[str, np.ndarray],
@@ -329,38 +390,34 @@ class PlotView(QWidget):
 
         self.canvas.draw()
 
-    def clear_plot(self):
-        self.x_data = []
-        self.y_data = []
-
-        for name, line in self._roi_lines:
-            line.set_xdata([])
-            line.set_ydata([])
-
     def add_realtime_plot(self, values: dict[str, float]):
         """
 
         :param values: roi name: value
         :return:
         """
-        self.x_data.append(len(self.x_data))
+        if self.realtime_proc:
 
-        for name, val in values.items():
-            self.y_data.append(val)
+            for name, val in values.items():
 
-        for name, line in self._roi_lines:
-            line.set_xdata(self.x_data)
-            line.set_ydata(self.y_data)
+                if name not in self.x_data or name not in self.y_data:
+                    continue
 
-        self.ax.relim()
-        self.ax.autoscale_view()
+                self.x_data[name].append(len(self.x_data[name]))
+                self.y_data[name].append(val)
 
-        self.canvas.draw()
+            for name, line in self._roi_lines.items():
+                line.set_xdata(self.x_data[name])
+                line.set_ydata(self.y_data[name])
+
+            self.ax.relim()
+            self.ax.autoscale_view()
+
+            self.canvas.draw()
 
     def load_from_file(self, file: str) -> None:
         """TODO fix"""
         pass
-
 
 
 class FrameProcessor(QThread):
@@ -763,6 +820,7 @@ class VideoLoaderApp(QMainWindow):
                     self.play_video()
 
     def process_frame(self) -> None:
+        """realtime proc each frame"""
         self.video_view.process_frame()
 
     # ===================== #
@@ -776,11 +834,15 @@ class VideoLoaderApp(QMainWindow):
         dialog = RoiSettingsDialog(roi_object, self)  # Pass the last rectangle's rect
         if dialog.exec() == QDialog.DialogCode.Accepted:
             self.rois[roi_object.name] = roi_object
+            self.video_view.roi_object[roi_object.name] = roi_object
+            log_message(f'#######{self.video_view.roi_object=}')
             self.update_roi_table()
 
             roi_object.rect_item.setPen(QPen(QColor('green'), 2))
             self.video_view.scene().addItem(roi_object.background)
             self.video_view.scene().addItem(roi_object.text)
+
+            self.plot_view.add_roi_line(roi_object.name)
 
     def update_roi_table(self) -> None:
         self.roi_table.setRowCount(len(self.rois))
@@ -807,12 +869,17 @@ class VideoLoaderApp(QMainWindow):
             self.video_view.scene().removeItem(roi_obj.text)
             self.video_view.scene().removeItem(roi_obj.background)
 
+        #
+        self.plot_view.delete_roi_line(roi_name)
+
         self.log_message(f"Deleted ROI: {roi_name}")
 
     def process_all_frames(self) -> None:
         if len(self.rois) == 0:
             self.log_message('Please set an ROI first.', log_type='ERROR')
             return
+
+        self.plot_view.realtime_proc = False
         self.plot_view.clear_plot()
 
         for name in self.rois.keys():
@@ -843,9 +910,9 @@ class VideoLoaderApp(QMainWindow):
 
     @pyqtSlot(dict)
     def save_frame_values(self, frame_values: dict[str, np.ndarray]) -> None:
-        """save list[RoiType._asdict()] as pkl
+        """
 
-        :param frame_values: (R, F)
+        :param frame_values: name:result
         """
         file = Path(self.video_path)
         output = file.with_stem(f'{file.stem}_pixviz').with_suffix('.pkl')
