@@ -3,18 +3,19 @@ import pickle
 import sys
 import traceback
 from pathlib import Path
-from typing import ClassVar, Literal
+from typing import ClassVar, Literal, TypedDict
 
 import cv2
 import numpy as np
-from PyQt6.QtCore import Qt, QUrl, QRectF, pyqtSignal, QTimer, QThread, pyqtSlot
-from PyQt6.QtGui import QTextCursor, QWheelEvent, QPen, QImage, QColor, QPixmap, QPainter, QKeyEvent
+from PyQt6.QtCore import Qt, QUrl, QRectF, pyqtSignal, QTimer, QThread, pyqtSlot, QPointF
+from PyQt6.QtGui import QTextCursor, QWheelEvent, QPen, QImage, QColor, QPixmap, QPainter, QKeyEvent, QFont, \
+    QFontDatabase
 from PyQt6.QtMultimedia import QMediaPlayer, QAudioOutput
 from PyQt6.QtMultimediaWidgets import QGraphicsVideoItem
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QPushButton, QFileDialog, QLabel, QVBoxLayout, QWidget, QHBoxLayout, QGraphicsView,
     QGraphicsScene, QSlider, QTextEdit, QGraphicsRectItem, QSplitter, QDialog, QLineEdit, QRadioButton, QButtonGroup,
-    QProgressBar, QTableWidget, QTableWidgetItem
+    QProgressBar, QTableWidget, QTableWidgetItem, QGraphicsTextItem
 )
 from matplotlib import pyplot as plt
 from matplotlib.backends.backend_qt import NavigationToolbar2QT
@@ -27,10 +28,11 @@ from pixviz.output import RoiType
 __all__ = ['run_gui']
 
 LOGGING_TYPE = Literal['DEBUG', 'INFO', 'IO', 'WARNING', 'ERROR']
+DEBUG_LOGGING = False
 
 
-def log_message(message: str, log_type: LOGGING_TYPE = 'INFO') -> None:
-    VideoLoaderApp.INSTANCE.log_message(message, log_type)
+def log_message(message: str, log_type: LOGGING_TYPE = 'INFO', debug_mode: bool = DEBUG_LOGGING) -> None:
+    VideoLoaderApp.INSTANCE.log_message(message, log_type, debug_mode=debug_mode)
 
 
 class FrameRateDialog(QDialog):
@@ -153,9 +155,11 @@ class VideoGraphicsView(QGraphicsView):
         self.scene().addItem(self.video_item)
 
         # ROI
-        self.drawing_roi: bool = False
+        self.drawing_roi: bool = False  # isDrawing flag
         self.roi_start_pos = None
-        self.roi_rect_item: QGraphicsRectItem | None = None
+        self.current_roi_rect_item: QGraphicsRectItem | None = None
+        self.roi_rect_items: list[QGraphicsRectItem] = []
+        self.roi_text_items: list[QGraphicsTextItem] = []
         self.rect_list: list[QRectF] = []
 
         self.pixmap_item = None
@@ -203,38 +207,37 @@ class VideoGraphicsView(QGraphicsView):
         if self.drawing_roi:
             self.roi_start_signal.emit()
             self.roi_start_pos = self.mapToScene(event.pos())
-            if self.roi_rect_item is None:
-                self.roi_rect_item = QGraphicsRectItem()
-                self.roi_rect_item.setPen(QPen(Qt.GlobalColor.red, 2))
-                self.scene().addItem(self.roi_rect_item)
+            if self.current_roi_rect_item is None:
+                self.current_roi_rect_item = QGraphicsRectItem()
+                self.current_roi_rect_item.setPen(QPen(Qt.GlobalColor.red, 2))
+                self.scene().addItem(self.current_roi_rect_item)
 
     def mouseMoveEvent(self, event):
         if self.drawing_roi and self.roi_start_pos:
             current_pos = self.mapToScene(event.pos())
             rect = QRectF(self.roi_start_pos, current_pos).normalized()
-            self.roi_rect_item.setRect(rect)
+            self.current_roi_rect_item.setRect(rect)
 
     def mouseReleaseEvent(self, event):
         if self.drawing_roi:
             self.drawing_roi = False
             current_pos = self.mapToScene(event.pos())
             rect = QRectF(self.roi_start_pos, current_pos).normalized()
-            self.roi_rect_item.setRect(rect)
-            self.rect_list.append(rect)  # Append the finalized rectangle
+            self.rect_list.append(rect)
+            self.current_roi_rect_item.setRect(rect)
+            self.roi_rect_items.append(self.current_roi_rect_item)  # append the finalized rectangle
             self.roi_complete_signal.emit()
 
     def start_drawing_roi(self):
         self.drawing_roi = True
         self.roi_start_pos = None
-        if self.roi_rect_item:
-            self.scene().removeItem(self.roi_rect_item)
-            self.roi_rect_item = None
+        self.current_roi_rect_item = None
 
     def process_frame(self, calculate_func: PIXEL_CAL_FUNCTION = 'mean') -> None:
-        if self.roi_rect_item and not self.drawing_roi:
+        if len(self.roi_rect_items) != 0 and not self.drawing_roi:
             image = self.grab_frame()
             if image:
-                roi_rect = self.roi_rect_item.rect().toRect()
+                roi_rect = self.current_roi_rect_item.rect().toRect()
                 cropped_image = image.copy(roi_rect)
 
                 ret = compute_pixel_intensity(cropped_image, calculate_func)
@@ -454,7 +457,12 @@ class VideoLoaderApp(QMainWindow):
         self.cap: cv2.VideoCapture | None = None
         self.total_frames: int | None = None
         self.frame_rate: float | None = None
+
+        # set after drag roi(s)
         self.roi_list: list[RoiType] = []
+
+        # container for roi_name:elements in QGraphicsVideoItem
+        self.graphic_roi_items: dict[str, tuple[QGraphicsRectItem, QGraphicsTextItem]] = {}
 
         #
         self.setup_layout()
@@ -754,7 +762,7 @@ class VideoLoaderApp(QMainWindow):
         self.video_view.start_drawing_roi()
 
     def show_roi_settings_dialog(self) -> None:
-        dialog = RoiSettingsDialog(self.video_view.rect_list[-1])  # TODO check, last one from append
+        dialog = RoiSettingsDialog(self.video_view.rect_list[-1])  # Pass the last rectangle's rect
         if dialog.exec() == QDialog.DialogCode.Accepted:
             roi = dialog.get_roi_type()
 
@@ -763,9 +771,45 @@ class VideoLoaderApp(QMainWindow):
                 return
 
             self.roi_list.append(roi)
-
             self.log_message(f"ROI name: {roi.name}, Calculation method: {roi.function}")
             self.update_roi_table()
+
+            self._action_after_roi_dialog(roi)
+
+    def _action_after_roi_dialog(self, roi: RoiType):
+        """
+        Set the rect color and add text to the `VideoGraphicsView`
+
+        :param roi: ``RoiType``
+        :return:
+        """
+        # set roi rect as white
+        prev_roi_item = self.video_view.roi_rect_items[-1]
+        prev_roi_item.setPen(QPen(QColor('green'), 2))
+
+        # text
+        text_item = QGraphicsTextItem(roi.name)
+        text_item.setDefaultTextColor(QColor('white'))
+        font = QFont()
+        font.setPointSize(8)  # Adjust the size here
+        font.setBold(True)
+        text_item.setFont(font)
+        text_item.setPos(prev_roi_item.rect().topRight() + QPointF(5, 0))
+
+        # bg color
+        text_rect = text_item.boundingRect()  # Get the bounding rect of the text
+        background_rect = QGraphicsRectItem(text_rect)
+        background_color = QColor('green')
+        background_color.setAlpha(128)
+        background_rect.setBrush(background_color)
+        background_rect.setPos(text_item.pos())
+
+        #
+        self.video_view.scene().addItem(background_rect)
+        self.video_view.scene().addItem(text_item)
+
+        self.video_view.roi_text_items.append(text_item)
+        self.graphic_roi_items[roi.name] = (prev_roi_item, text_item)
 
     def update_roi_table(self) -> None:
         self.roi_table.setRowCount(len(self.roi_list))
@@ -775,6 +819,7 @@ class VideoLoaderApp(QMainWindow):
             self.roi_table.setItem(row, 2, QTableWidgetItem(roi.function))
 
     def delete_selected_roi(self):
+        """delete the selected roi using the button click"""
         selected_items = self.roi_table.selectedItems()
         if not selected_items:
             self.log_message('No ROI selected for deletion.', log_type='ERROR')
@@ -784,9 +829,22 @@ class VideoLoaderApp(QMainWindow):
         roi_name = self.roi_table.item(selected_row, 0).text()
 
         self.roi_table.removeRow(selected_row)
-        self.roi_list = [roi for roi in self.roi_list if roi.name != roi_name]
+        self.roi_list = [roi for roi in self.roi_list if roi.name != roi_name]  # delete for process
 
+        self._delete_graphic_roi_items(roi_name)
         self.log_message(f"Deleted ROI: {roi_name}")
+
+    def _delete_graphic_roi_items(self, roi_name: str) -> None:
+        """
+        Delete the elements in the  ``VideoGraphicsView`` based on roi name
+
+        :param roi_name: roi name
+        :return:
+        """
+        if roi_name in self.graphic_roi_items:
+            rect_item, text_item = self.graphic_roi_items.pop(roi_name)
+            self.video_view.scene().removeItem(rect_item)
+            self.video_view.scene().removeItem(text_item)
 
     def process_all_frames(self):
         if len(self.roi_list) == 0:
@@ -840,7 +898,7 @@ class VideoLoaderApp(QMainWindow):
     # Message Log #
     # =========== #
 
-    def log_message(self, message: str, log_type: LOGGING_TYPE = 'INFO', debug_mode: bool = True) -> None:
+    def log_message(self, message: str, log_type: LOGGING_TYPE = 'INFO', debug_mode: bool = DEBUG_LOGGING) -> None:
         if not debug_mode and log_type == 'DEBUG':
             return
 
@@ -869,9 +927,7 @@ class VideoLoaderApp(QMainWindow):
             case _:
                 return 'white'
 
-    # === #
-    # Run #
-    # === #
+    # ======= #
 
     def main(self):
         self.show()
