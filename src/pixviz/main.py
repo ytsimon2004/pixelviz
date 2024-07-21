@@ -22,7 +22,7 @@ from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
 from matplotlib.lines import Line2D
 
-from pixviz.roi import RoiLabelObject, compute_pixel_intensity, PIXEL_CAL_FUNCTION
+from pixviz.roi import RoiLabelObject, compute_pixel_intensity, PIXEL_CAL_FUNCTION, RoiOutput
 
 __all__ = ['run_gui']
 
@@ -287,7 +287,6 @@ class VideoGraphicsView(QGraphicsView):
             self.current_roi_rect_item.setRect(rect)
             roi_object = RoiLabelObject()
             roi_object.rect_item = self.current_roi_rect_item
-            # self.current_roi_rect_item = None
             self.roi_complete_signal.emit(roi_object)
 
     def start_drawing_roi(self):
@@ -357,15 +356,28 @@ class PlotView(QWidget):
         self.ax.set_ylabel('Pixel Intensity')
 
     def setup_controller(self):
-        self.clear_button.clicked.connect(self.clear_plot)
+        self.clear_button.clicked.connect(self.clear_axes)
 
-    def add_roi_line(self, roi_name: str, **kwargs):
+    def add_axes(self, roi_name: str, **kwargs):
+        """
+        add axes for a given ROI name
+
+        :param roi_name: roi name
+        :param kwargs:
+        :return:
+        """
         self._roi_lines[roi_name] = self.ax.plot([], [], label=roi_name, **kwargs)[0]
         self.x_data[roi_name] = []
         self.y_data[roi_name] = []
         self.ax.legend()
 
     def delete_roi_line(self, roi_name: str):
+        """
+        Remove line, legend, and
+
+        :param roi_name:
+        :return:
+        """
         # remove line and legend
         self._roi_lines[roi_name].remove()
         self.ax.legend()
@@ -377,13 +389,21 @@ class PlotView(QWidget):
         except KeyError:
             log_message(f'{roi_name} not exist', log_type='ERROR')
 
-    def clear_plot(self):
+    def clear_all(self):
         self.x_data = {}
         self.y_data = {}
 
         for name, line in list(self._roi_lines.items()):
             line.remove()
             del self._roi_lines[name]
+
+    def clear_axes(self):
+        """clear axes without removing data"""
+        self.ax.cla()
+
+        # add back axes for rendering
+        for name in self._roi_lines:
+            self.add_axes(name)
 
     def update_plot(self,
                     frame_result: dict[str, np.ndarray],
@@ -443,8 +463,24 @@ class PlotView(QWidget):
             self.canvas.draw()
 
     def load_from_file(self, file: str) -> None:
-        """TODO fix"""
-        pass
+        """Plot from result load"""
+        with Path(file).open('rb') as f:
+            dat = pickle.load(f)
+
+        for name, roi in dat.items():
+            self.add_axes(name)
+            dat = roi['data']
+            self.x_data[name] = np.arange(len(dat))
+            self.y_data[name] = dat
+
+        for name, line in self._roi_lines.items():
+            line.set_xdata(self.x_data[name])
+            line.set_ydata(self.y_data[name])
+
+        self.ax.relim()
+        self.ax.autoscale_view()
+
+        self.canvas.draw()
 
 
 class FrameProcessor(QThread):
@@ -727,9 +763,8 @@ class VideoLoaderApp(QMainWindow):
         self.media_player.mediaStatusChanged.connect(self._handle_media_status)
 
         # rois
-        self.video_view.roi_complete_signal.connect(self.show_roi_settings_dialog)
         self.video_view.roi_start_signal.connect(self.pause_video)
-        self.video_view.roi_complete_signal.connect(self.play_video)
+        self.video_view.roi_complete_signal.connect(self.show_roi_settings_dialog)
         self.video_view.roi_average_signal.connect(self.plot_view.add_realtime_plot)
 
     def load_video(self) -> None:
@@ -754,7 +789,7 @@ class VideoLoaderApp(QMainWindow):
             if dialog.exec() == QDialog.DialogCode.Accepted:
                 self.frame_rate = dialog.get_sampling_rate()
                 self.log_message(f'Sampling rate set to: {self.frame_rate} frames per second')
-                self.timer.start(int(1000 // self.frame_rate))
+                # self.timer.start(int(1000 // self.frame_rate))
 
             # show
             self.media_player.pause()
@@ -783,10 +818,12 @@ class VideoLoaderApp(QMainWindow):
     def play_video(self) -> None:
         self.log_message("play", log_type='DEBUG')
         self.media_player.play()
+        self.timer.start(int(1000 // self.frame_rate))
 
     def pause_video(self) -> None:
         self.log_message("pause", log_type='DEBUG')
         self.media_player.pause()
+        self.timer.stop()
 
     def _handle_media_status(self, status) -> None:
         match status:
@@ -868,7 +905,7 @@ class VideoLoaderApp(QMainWindow):
             self.video_view.scene().addItem(roi_object.background)
             self.video_view.scene().addItem(roi_object.text)
 
-            self.plot_view.add_roi_line(roi_object.name)
+            self.plot_view.add_axes(roi_object.name)
 
     def update_roi_table(self) -> None:
         self.roi_table.setRowCount(len(self.rois))
@@ -906,10 +943,10 @@ class VideoLoaderApp(QMainWindow):
             return
 
         self.plot_view.realtime_proc = False
-        self.plot_view.clear_plot()
+        self.plot_view.clear_all()
 
         for name in self.rois.keys():
-            self.plot_view.add_roi_line(name)
+            self.plot_view.add_axes(name)
 
         self.update_frame_number(0)
 
