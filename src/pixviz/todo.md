@@ -7,7 +7,9 @@
 
 
 # Bugfix
+
 - [ ] fix the keyboard event receiver
+- [ ] Event after process (i.e., reload)
 
 # Enhancement
 

@@ -995,8 +995,6 @@ class VideoLoaderApp(QMainWindow):
         for i, (name, roi) in enumerate(self.rois.items()):
             ret[name] = roi.to_meta(i)
 
-        print(f'{ret=}')
-
         with self.meta_output_file.open('w') as f:
             json.dump(ret, f, sort_keys=True, indent=4)
 
