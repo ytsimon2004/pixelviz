@@ -1,4 +1,4 @@
-from typing import Literal, NamedTuple, TypedDict
+from typing import Literal, Any
 
 import cv2
 import numpy as np
@@ -10,17 +10,11 @@ from PyQt6.QtWidgets import QGraphicsRectItem, QGraphicsTextItem
 __all__ = [
     'PIXEL_CAL_FUNCTION',
     'RoiLabelObject',
-    'RoiOutput',
     'compute_pixel_intensity'
 ]
 
 PIXEL_CAL_FUNCTION = Literal['mean', 'median']
 
-
-class RoiOutput(TypedDict):
-    name: str
-    func: PIXEL_CAL_FUNCTION
-    data: np.ndarray
 
 
 class RoiLabelObject:
@@ -73,8 +67,14 @@ class RoiLabelObject:
     def set_data(self, data: np.ndarray) -> None:
         self.data = data
 
-    def as_output(self) -> 'RoiOutput':
-        return RoiOutput(name=self.name, func=self.func, data=self.data)
+    def to_meta(self, idx: int) -> dict[str, Any]:
+        ret = {}
+        ret['name'] = self.name
+        ret['index'] = idx
+        ret['item'] = str(self.rect_item.rect())
+        ret['func'] = self.func
+
+        return ret
 
 
 def compute_pixel_intensity(image: QImage | np.ndarray,

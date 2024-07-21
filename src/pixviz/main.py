@@ -1,5 +1,5 @@
 import datetime
-import pickle
+import json
 import sys
 import traceback
 from pathlib import Path
@@ -22,7 +22,7 @@ from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
 from matplotlib.lines import Line2D
 
-from pixviz.roi import RoiLabelObject, compute_pixel_intensity, PIXEL_CAL_FUNCTION, RoiOutput
+from pixviz.roi import RoiLabelObject, compute_pixel_intensity, PIXEL_CAL_FUNCTION
 
 __all__ = ['run_gui']
 
@@ -458,26 +458,6 @@ class PlotView(QWidget):
 
             self.canvas.draw()
 
-    def load_from_file(self, file: str) -> None:
-        """Plot from result load"""
-        with Path(file).open('rb') as f:
-            dat = pickle.load(f)
-
-        for name, roi in dat.items():
-            self.add_axes(name)
-            dat = roi['data']
-            self.x_data[name] = np.arange(len(dat))
-            self.y_data[name] = dat
-
-        for name, line in self._roi_lines.items():
-            line.set_xdata(self.x_data[name])
-            line.set_ydata(self.y_data[name])
-
-        self.ax.relim()
-        self.ax.autoscale_view()
-
-        self.canvas.draw()
-
 
 class FrameProcessor(QThread):
     progress = pyqtSignal(int)
@@ -810,15 +790,25 @@ class VideoLoaderApp(QMainWindow):
         size = self.video_view.video_item.size()
         return size.width(), size.height()
 
+    @property
+    def data_output_file(self) -> Path:
+        file = Path(self.video_path)
+        return file.with_stem(f'{file.stem}_pixviz').with_suffix('.npy')
+
+    @property
+    def meta_output_file(self) -> Path:
+        file = Path(self.video_path)
+        return file.with_stem(f'{file.stem}_pixviz_meta').with_suffix('.json')
+
     def load_result(self) -> None:
         file_dialog = QFileDialog(self)
-        file_dialog.setNameFilter('Pixviz Result File (*.pkl)')
+        file_dialog.setNameFilter('Pixviz Result File (*.npy)')
         file_dialog.setFileMode(QFileDialog.FileMode.ExistingFile)
 
         if file_dialog.exec():
             file_path = file_dialog.selectedFiles()[0]
             self.log_message(f'Loaded Result: {file_path}')
-            self.plot_view.load_from_file(file_path)
+            self.load_from_file(file_path)
 
     def play_video(self) -> None:
         self.log_message("play", log_type='DEBUG')
@@ -942,6 +932,10 @@ class VideoLoaderApp(QMainWindow):
 
         self.log_message(f"Deleted ROI: {roi_name}")
 
+    # ================== #
+    # Batch Process Mode #
+    # ================== #
+
     def process_all_frames(self) -> None:
         if len(self.rois) == 0:
             self.log_message('Please set an ROI first.', log_type='ERROR')
@@ -979,22 +973,75 @@ class VideoLoaderApp(QMainWindow):
     @pyqtSlot(dict)
     def save_frame_values(self, frame_values: dict[str, np.ndarray]) -> None:
         """
+        Save meta info (`.json`) and (R, F) numpy ndarray (`.npy`)
 
         :param frame_values: name:result
         """
-        file = Path(self.video_path)
-        output = file.with_stem(f'{file.stem}_pixviz').with_suffix('.pkl')
+        if frame_values.keys() != self.rois.keys():
+            self.log_message('roi name index incorrect', log_type='ERROR')
 
-        save_dat = {}
-        for name, roi in self.rois.items():
-            # res = RoiType(roi.name, roi.selection_area, roi.function, data=np.array(frame_values[i]))
-            dat = frame_values[name]
-            roi.set_data(dat)
-            save_dat[name] = roi.as_output()
+        self._save_meta()
 
-        with Path(output).open('wb') as f:
-            pickle.dump(save_dat, f)
-            self.log_message(f'Pixel intensity value saved to: {output}', log_type='IO')
+        n_rois = len(frame_values)
+        ret = np.zeros((n_rois, self.total_frames))
+        for i, dat in enumerate(frame_values.values()):
+            ret[i] = dat
+
+        np.save(self.data_output_file, ret)
+        self.log_message(f'Pixel intensity value saved to directory: {self.data_output_file.parent}', log_type='IO')
+
+    def _save_meta(self):
+        ret = {}
+        for i, (name, roi) in enumerate(self.rois.items()):
+            ret[name] = roi.to_meta(i)
+
+        print(f'{ret=}')
+
+        with self.meta_output_file.open('w') as f:
+            json.dump(ret, f, sort_keys=True, indent=4)
+
+    # ============= #
+    # Result Reload #
+    # ============= #
+
+    def load_from_file(self, file: str) -> None:
+        """Plot from result load"""
+        file = Path(file)
+        dat = np.load(file)
+
+        meta = file.with_stem(f'{file.stem}_meta').with_suffix('.json')
+        try:
+            name = self._get_name_from_meta(meta)
+        except FileExistsError as e:
+            self.log_message(repr(e), log_type='ERROR')
+
+        #
+        view = self.plot_view
+        for i, n in enumerate(name):
+            view.add_axes(n)
+            d = dat[i]
+            view.x_data[n] = np.arange(len(d))
+            view.y_data[n] = d
+
+        for name, line in view._roi_lines.items():
+            line.set_xdata(view.x_data[name])
+            line.set_ydata(view.y_data[name])
+
+        view.ax.relim()
+        view.ax.autoscale_view()
+
+        view.canvas.draw()
+
+    @staticmethod
+    def _get_name_from_meta(meta_file: Path | str) -> list[str]:
+        with open(meta_file, 'r') as file:
+            meta = json.load(file)
+
+        ret = []
+        for roi in meta.values():
+            ret.insert(roi['index'], roi['name'])
+
+        return ret
 
     # =========== #
     # Message Log #
