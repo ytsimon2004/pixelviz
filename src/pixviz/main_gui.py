@@ -170,7 +170,7 @@ class RoiSettingsDialog(QDialog):
 
     def setup_controller(self) -> None:
         self.ok_button.clicked.connect(self._accept)
-        self.cancel_button.clicked.connect(self.reject)
+        self.cancel_button.clicked.connect(self._reject)
         self.name_input.textChanged.connect(self.edit)
 
     def edit(self, text: str) -> None:
@@ -193,10 +193,18 @@ class RoiSettingsDialog(QDialog):
             return 'median'
 
     def _accept(self):
+        """action of clicking `OK`"""
         self.roi_object.func = self.get_calculated_func()
         self.roi_object.set_name(self.name_input.text())
         log_message(f"ROI name: {self.roi_object.name}, Calculation method: {self.roi_object.func}")
         self.accept()
+
+    def _reject(self):
+        """action of clicking `Cancel`"""
+        self.app.video_view.scene().removeItem(self.roi_object.rect_item)
+        self.app.video_view.current_roi_rect_item = None
+        self.app.video_view.drawing_roi = False
+        self.reject()
 
 
 class VideoGraphicsView(QGraphicsView):
@@ -283,6 +291,7 @@ class VideoGraphicsView(QGraphicsView):
             self.current_roi_rect_item.setRect(rect)
             roi_object = RoiLabelObject()
             roi_object.rect_item = self.current_roi_rect_item
+            self.current_roi_rect_item = None
             self.roi_complete_signal.emit(roi_object)
 
     def start_drawing_roi(self):

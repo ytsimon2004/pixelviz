@@ -68,13 +68,10 @@ class RoiLabelObject:
         self.data = data
 
     def to_meta(self, idx: int) -> dict[str, Any]:
-        ret = {}
-        ret['name'] = self.name
-        ret['index'] = idx
-        ret['item'] = str(self.rect_item.rect())
-        ret['func'] = self.func
-
-        return ret
+        return dict(name=self.name,
+                    index=idx,
+                    item=str(self.rect_item.rect()),
+                    func=self.func)
 
 
 def compute_pixel_intensity(image: QImage | np.ndarray,
