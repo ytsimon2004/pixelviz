@@ -71,6 +71,7 @@ class FrameRateDialog(QDialog):
         }
         QPushButton {
             background-color: #444;
+            color: white;
             border: 1px solid #555;
             padding: 5px;
         }
@@ -152,6 +153,7 @@ class RoiSettingsDialog(QDialog):
         }
         QPushButton {
             background-color: #444;
+            color: white;
             border: 1px solid #555;
             padding: 5px;
         }
@@ -316,14 +318,14 @@ class VideoGraphicsView(QGraphicsView):
 
 
 class PlotView(QWidget):
+    clear_button: QPushButton
+    canvas: FigureCanvas
+
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
-        self.layout = QVBoxLayout(self)
-        self.canvas = FigureCanvas(Figure())
-        self.toolbar = NavigationToolbar2QT(self.canvas, self)
-        self.layout.addWidget(self.toolbar)
-        self.layout.addWidget(self.canvas)
+        self.setup_layout()
+        self.setup_controller()
 
         # for realtime plot
         self.realtime_proc: bool = True
@@ -333,8 +335,29 @@ class PlotView(QWidget):
         self._roi_lines: dict[str, Line2D] = {}
 
         self.ax = self.canvas.figure.subplots()
-        self.ax.set_xlabel('Frame')
+        self._set_axes()
+
+    def setup_layout(self):
+        layout = QVBoxLayout(self)
+        toolbar_layout = QHBoxLayout()
+        self.canvas = FigureCanvas(Figure())
+        toolbar = NavigationToolbar2QT(self.canvas, self)
+        toolbar_layout.addWidget(toolbar)
+
+        self.clear_button = QPushButton("Clear")
+        toolbar_layout.addWidget(self.clear_button)
+        layout.addLayout(toolbar_layout)
+        layout.addWidget(self.canvas)
+
+    def _set_axes(self):
+        for s in ('top', 'right', 'bottom'):
+            self.ax.spines[s].set_visible(False)
+
+        self.ax.get_xaxis().set_visible(False)
         self.ax.set_ylabel('Pixel Intensity')
+
+    def setup_controller(self):
+        self.clear_button.clicked.connect(self.clear_plot)
 
     def add_roi_line(self, roi_name: str, **kwargs):
         self._roi_lines[roi_name] = self.ax.plot([], [], label=roi_name, **kwargs)[0]
@@ -343,6 +366,10 @@ class PlotView(QWidget):
         self.ax.legend()
 
     def delete_roi_line(self, roi_name: str):
+        # remove line and legend
+        self._roi_lines[roi_name].remove()
+        self.ax.legend()
+
         try:
             del self._roi_lines[roi_name]
             del self.x_data[roi_name]
@@ -570,7 +597,6 @@ class VideoLoaderApp(QMainWindow):
         # media
         self.video_view = VideoGraphicsView()
         left_splitter.addWidget(self.video_view)
-        left_splitter.setStretchFactor(0, 5)  # Allocate more space to video_view
 
         self.media_player = QMediaPlayer(self)
         self.video_view.set_media_player(self.media_player)
@@ -578,17 +604,13 @@ class VideoLoaderApp(QMainWindow):
         # Progress Bar
         self.progress_bar = QSlider(Qt.Orientation.Horizontal)
         self.progress_bar.setRange(0, 100)
-        progress_bar_layout = QVBoxLayout()
-        progress_bar_layout.addWidget(self.progress_bar)
+        left_splitter.addWidget(self.progress_bar)
 
         # Plot View
         self.plot_view = PlotView()
         left_splitter.addWidget(self.plot_view)
-        left_splitter.setStretchFactor(1, 1)
 
-        left_splitter.addWidget(QWidget())
-        left_splitter.widget(2).setLayout(progress_bar_layout)
-
+        # RIGHT SPLITTER #
         # Table Widget for ROI Details
         self.roi_table = QTableWidget()
         self.roi_table.setColumnCount(3)
@@ -734,6 +756,10 @@ class VideoLoaderApp(QMainWindow):
                 self.log_message(f'Sampling rate set to: {self.frame_rate} frames per second')
                 self.timer.start(int(1000 // self.frame_rate))
 
+            # show
+            self.media_player.pause()
+            self.media_player.setPosition(0)
+
     @property
     def video_item_size(self) -> tuple[int, int]:
         """
@@ -828,6 +854,7 @@ class VideoLoaderApp(QMainWindow):
     # ===================== #
 
     def start_drawing_roi(self) -> None:
+        self.log_message('Enable Drag mode')
         self.video_view.start_drawing_roi()
 
     def show_roi_settings_dialog(self, roi_object: RoiLabelObject) -> None:
@@ -835,7 +862,6 @@ class VideoLoaderApp(QMainWindow):
         if dialog.exec() == QDialog.DialogCode.Accepted:
             self.rois[roi_object.name] = roi_object
             self.video_view.roi_object[roi_object.name] = roi_object
-            log_message(f'#######{self.video_view.roi_object=}')
             self.update_roi_table()
 
             roi_object.rect_item.setPen(QPen(QColor('green'), 2))

@@ -15,4 +15,3 @@
 # Enhancement
 
 - [ ] resize issue after load video
-- [ ] add clear realtime plot button
