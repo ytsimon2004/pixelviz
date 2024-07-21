@@ -206,9 +206,6 @@ class VideoGraphicsView(QGraphicsView):
     roi_complete_signal = pyqtSignal(RoiLabelObject)
     """Signal to emit when ROI is completed"""
 
-    roi_start_signal = pyqtSignal()
-    """Signal to emit when ROI drawing starts"""
-
     def __init__(self):
         super().__init__()
 
@@ -266,7 +263,6 @@ class VideoGraphicsView(QGraphicsView):
 
     def mousePressEvent(self, event):
         if self.drawing_roi:
-            self.roi_start_signal.emit()
             self.roi_start_pos = self.mapToScene(event.pos())
             if self.current_roi_rect_item is None:
                 self.current_roi_rect_item = QGraphicsRectItem()
@@ -384,8 +380,8 @@ class PlotView(QWidget):
 
         try:
             del self._roi_lines[roi_name]
-            del self.x_data[roi_name]
-            del self.y_data[roi_name]
+            self.x_data[roi_name] = []
+            self.y_data[roi_name] = []
         except KeyError:
             log_message(f'{roi_name} not exist', log_type='ERROR')
 
@@ -637,16 +633,30 @@ class VideoLoaderApp(QMainWindow):
         self.media_player = QMediaPlayer(self)
         self.video_view.set_media_player(self.media_player)
 
-        # Progress Bar
+        # playing control
+        media_control_layout = QHBoxLayout()
+        media_control_widget = QWidget()
+        media_control_widget.setLayout(media_control_layout)
+
         self.progress_bar = QSlider(Qt.Orientation.Horizontal)
         self.progress_bar.setRange(0, 100)
-        left_splitter.addWidget(self.progress_bar)
+        media_control_layout.addWidget(self.progress_bar)
+
+        self.play_button = QPushButton("Play")
+        media_control_layout.addWidget(self.play_button)
+
+        self.pause_button = QPushButton("Pause")
+        media_control_layout.addWidget(self.pause_button)
+        left_splitter.addWidget(media_control_widget)
 
         # Plot View
         self.plot_view = PlotView()
         left_splitter.addWidget(self.plot_view)
 
+        # ============== #
         # RIGHT SPLITTER #
+        # ============== #
+
         # Table Widget for ROI Details
         self.roi_table = QTableWidget()
         self.roi_table.setColumnCount(3)
@@ -669,12 +679,6 @@ class VideoLoaderApp(QMainWindow):
         control_widget = QWidget()
         control_widget.setLayout(control_group)
         right_splitter.addWidget(control_widget)
-
-        self.play_button = QPushButton("Play")
-        control_group.addWidget(self.play_button)
-
-        self.pause_button = QPushButton("Pause")
-        control_group.addWidget(self.pause_button)
 
         # ROI
         self.roi_button = QPushButton("Drag a Rect ROI")
@@ -751,6 +755,8 @@ class VideoLoaderApp(QMainWindow):
         self.load_video_button.clicked.connect(self.load_video)
         self.load_result_button.clicked.connect(self.load_result)
         self.roi_button.clicked.connect(self.start_drawing_roi)
+        self.roi_button.clicked.connect(self.pause_video)
+
         self.play_button.clicked.connect(self.play_video)
         self.pause_button.clicked.connect(self.pause_video)
         self.process_button.clicked.connect(self.process_all_frames)
@@ -763,7 +769,6 @@ class VideoLoaderApp(QMainWindow):
         self.media_player.mediaStatusChanged.connect(self._handle_media_status)
 
         # rois
-        self.video_view.roi_start_signal.connect(self.pause_video)
         self.video_view.roi_complete_signal.connect(self.show_roi_settings_dialog)
         self.video_view.roi_average_signal.connect(self.plot_view.add_realtime_plot)
 
