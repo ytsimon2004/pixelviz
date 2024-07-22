@@ -58,7 +58,7 @@ class FrameRateDialog(QDialog):
         self.button_box.addWidget(self.ok_button)
 
         self.cancel_button = QPushButton("Cancel")
-        self.cancel_button.clicked.connect(self.reject)
+        self.cancel_button.clicked.connect(self.reject)  # TODO fix
         self.button_box.addWidget(self.cancel_button)
 
         self.layout.addLayout(self.button_box)
@@ -229,8 +229,6 @@ class VideoGraphicsView(QGraphicsView):
         self.current_roi_rect_item: QGraphicsRectItem | None = None
         self.roi_object: dict[str, RoiLabelObject] = {}
 
-        self.pixmap_item = None
-
         #
         self.media_player = None
 
@@ -341,6 +339,10 @@ class PlotView(QWidget):
 
         self.ax = self.canvas.figure.subplots()
         self._set_axes()
+
+        # reload
+        self.enable_axvline: bool = False
+        self.vertical_line: Line2D | None = None
 
     def setup_layout(self):
         layout = QVBoxLayout(self)
@@ -467,6 +469,14 @@ class PlotView(QWidget):
             self.ax.autoscale_view()
 
             self.canvas.draw()
+
+    def set_axvline(self):
+        self.vertical_line = self.ax.axvline(x=0, color='pink', linestyle='--', zorder=1)
+
+    def update_vertical_line_position(self, frame_number: int):
+        """Update the vertical line position based on the current frame number."""
+        self.vertical_line.set_xdata([frame_number])
+        self.canvas.draw()
 
 
 class FrameProcessor(QThread):
@@ -859,6 +869,9 @@ class VideoLoaderApp(QMainWindow):
         frame_number = int((position / 1000.0) * self.frame_rate)
         self.video_view.frame_label.setText(f"Frame: {frame_number}")
 
+        if self.plot_view.enable_axvline:
+            self.plot_view.update_vertical_line_position(frame_number)
+
     def set_position(self, position: int) -> None:
         self.media_player.setPosition(position)
 
@@ -1035,17 +1048,18 @@ class VideoLoaderApp(QMainWindow):
             meta = json.load(file)
 
         #
-        view = self.plot_view
+        self.plot_view.enable_axvline = True
+        self.plot_view.set_axvline()
         self._reload(meta, dat)
 
         for name, line in self.plot_view._roi_lines.items():
-            line.set_xdata(view.x_data[name])
-            line.set_ydata(view.y_data[name])
+            line.set_xdata(self.plot_view.x_data[name])
+            line.set_ydata(self.plot_view.y_data[name])
 
-        view.ax.relim()
-        view.ax.autoscale_view()
+        self.plot_view.ax.relim()
+        self.plot_view.ax.autoscale_view()
 
-        view.canvas.draw()
+        self.plot_view.canvas.draw()
 
     def _reload(self, meta: dict[str, Any],
                 dat: np.ndarray):
