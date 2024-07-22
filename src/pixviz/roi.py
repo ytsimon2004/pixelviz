@@ -56,7 +56,7 @@ class RoiLabelObject:
         assert self.name == self.text.toPlainText()
 
         # bg color
-        text_rect = text_item.boundingRect()  # Get the bounding rect of the text
+        text_rect = text_item.boundingRect()
         background_rect = QGraphicsRectItem(text_rect)
         background_color = QColor('green')
         background_color.setAlpha(128)

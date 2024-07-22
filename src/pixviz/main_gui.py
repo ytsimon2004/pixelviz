@@ -1,9 +1,10 @@
 import datetime
 import json
+import re
 import sys
 import traceback
 from pathlib import Path
-from typing import ClassVar, Literal
+from typing import ClassVar, Literal, Any
 
 import cv2
 import numpy as np
@@ -783,7 +784,6 @@ class VideoLoaderApp(QMainWindow):
             if dialog.exec() == QDialog.DialogCode.Accepted:
                 self.frame_rate = dialog.get_sampling_rate()
                 self.log_message(f'Sampling rate set to: {self.frame_rate} frames per second')
-                # self.timer.start(int(1000 // self.frame_rate))
 
             # show
             self.media_player.pause()
@@ -899,7 +899,7 @@ class VideoLoaderApp(QMainWindow):
         self.video_view.start_drawing_roi()
 
     def show_roi_settings_dialog(self, roi_object: RoiLabelObject) -> None:
-        dialog = RoiSettingsDialog(roi_object, self)  # Pass the last rectangle's rect
+        dialog = RoiSettingsDialog(roi_object, self)
         if dialog.exec() == QDialog.DialogCode.Accepted:
             self.rois[roi_object.name] = roi_object
             self.video_view.roi_object[roi_object.name] = roi_object
@@ -929,7 +929,6 @@ class VideoLoaderApp(QMainWindow):
         roi_name = self.roi_table.item(selected_row, 0).text()
         self.roi_table.removeRow(selected_row)
 
-        self.log_message(f'{self.rois=}')
         if roi_name in self.rois:
             roi_obj = self.rois.pop(roi_name)
             self.video_view.scene().removeItem(roi_obj.rect_item)
@@ -1015,22 +1014,15 @@ class VideoLoaderApp(QMainWindow):
         """Plot from result load"""
         file = Path(file)
         dat = np.load(file)
-
-        meta = file.with_stem(f'{file.stem}_meta').with_suffix('.json')
-        try:
-            name = self._get_name_from_meta(meta)
-        except FileExistsError as e:
-            self.log_message(repr(e), log_type='ERROR')
+        meta_file = file.with_stem(f'{file.stem}_meta').with_suffix('.json')
+        with open(meta_file, 'r') as file:
+            meta = json.load(file)
 
         #
         view = self.plot_view
-        for i, n in enumerate(name):
-            view.add_axes(n)
-            d = dat[i]
-            view.x_data[n] = np.arange(len(d))
-            view.y_data[n] = d
+        self._reload(meta, dat)
 
-        for name, line in view._roi_lines.items():
+        for name, line in self.plot_view._roi_lines.items():
             line.set_xdata(view.x_data[name])
             line.set_ydata(view.y_data[name])
 
@@ -1039,16 +1031,41 @@ class VideoLoaderApp(QMainWindow):
 
         view.canvas.draw()
 
-    @staticmethod
-    def _get_name_from_meta(meta_file: Path | str) -> list[str]:
-        with open(meta_file, 'r') as file:
-            meta = json.load(file)
+    def _reload(self, meta: dict[str, Any], dat: np.ndarray):
 
-        ret = []
-        for roi in meta.values():
-            ret.insert(roi['index'], roi['name'])
+        # clear existing ROIs from the scene and plot
+        self.plot_view.clear_all()
+        self.rois.clear()
+        self.video_view.roi_object.clear()
 
-        return ret
+        self.roi_table.setRowCount(len(meta))
+        for i, (name, it) in enumerate(meta.items()):
+            self.roi_table.setItem(i, 0, QTableWidgetItem(name))
+            self.roi_table.setItem(i, 1, QTableWidgetItem(it['item']))
+            self.roi_table.setItem(i, 2, QTableWidgetItem(it['func']))
+
+            self.plot_view.add_axes(name)
+            d = dat[i]
+            self.plot_view.x_data[name] = list(np.arange(len(d)))
+            self.plot_view.y_data[name] = list(d)
+
+            #
+            roi_object = RoiLabelObject()
+            rect_values = re.findall(r"[-+]?\d*\.\d+|\d+", it['item'])[1:]
+            rect_values = list(map(float, rect_values))
+            rect = QRectF(*rect_values)
+            roi_object.rect_item = QGraphicsRectItem()
+            roi_object.rect_item.setRect(rect)
+            roi_object.rect_item.setPen(QPen(QColor('green'), 2))
+
+            roi_object.set_name(name)
+            roi_object.func = it['func']
+            self.rois[name] = roi_object
+
+            self.video_view.scene().addItem(roi_object.rect_item)
+            self.video_view.scene().addItem(roi_object.background)
+            self.video_view.scene().addItem(roi_object.text)
+            self.video_view.roi_object[name] = roi_object
 
     # =========== #
     # Message Log #
