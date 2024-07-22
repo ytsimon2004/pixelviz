@@ -58,7 +58,7 @@ class FrameRateDialog(QDialog):
         self.button_box.addWidget(self.ok_button)
 
         self.cancel_button = QPushButton("Cancel")
-        self.cancel_button.clicked.connect(self.reject)  # TODO fix
+        self.cancel_button.clicked.connect(self.reject)
         self.button_box.addWidget(self.cancel_button)
 
         self.layout.addLayout(self.button_box)
@@ -783,25 +783,23 @@ class VideoLoaderApp(QMainWindow):
 
         if file_dialog.exec():
             file_path = file_dialog.selectedFiles()[0]
-            self.media_player.setSource(QUrl.fromLocalFile(file_path))
-            self.log_message(f'Loaded Video: {file_path}', log_type='IO')
-
             self.video_path = file_path
             self.cap = cv2.VideoCapture(self.video_path)
             self.total_frames = int(self.cap.get(cv2.CAP_PROP_FRAME_COUNT))
             self.frame_rate = self.cap.get(cv2.CAP_PROP_FPS)
 
-            self.log_message(f'total frames: {self.total_frames}, frame_rate: {self.frame_rate}')
+            self.log_message(f'Loaded Video: {file_path}', log_type='IO')
 
             # Prompt for the sampling rate
             dialog = FrameRateDialog(default_value=self.frame_rate)
             if dialog.exec() == QDialog.DialogCode.Accepted:
+                self.media_player.setSource(QUrl.fromLocalFile(file_path))
                 self.frame_rate = dialog.get_sampling_rate()
-                self.log_message(f'Sampling rate set to: {self.frame_rate} frames per second')
-
-            # show
-            self.media_player.pause()
-            self.media_player.setPosition(0)
+                self.log_message(f'total frames: {self.total_frames}, frame_rate: {self.frame_rate}')
+                self.media_player.pause()
+                self.media_player.setPosition(0)
+            else:
+                self.log_message('Video loading cancel')
 
     # ================= #
     # VideoGraphicsView #
