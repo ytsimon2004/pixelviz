@@ -587,7 +587,7 @@ class VideoLoaderApp(QMainWindow):
         self.setup_controller()
 
         self.timer = QTimer()
-        self.timer.timeout.connect(self.process_frame)
+        self.timer.timeout.connect(self.video_view_process)
 
     def setup_layout(self) -> None:
         self._set_dark_theme()
@@ -707,6 +707,10 @@ class VideoLoaderApp(QMainWindow):
         QPushButton:hover {
             background-color: #555;
         }
+        QPushButton:disabled {
+            background-color: #555;
+            color: #888;
+        }
         QLineEdit, QTextEdit {
             background-color: #444;
             border: 1px solid #555;
@@ -789,6 +793,10 @@ class VideoLoaderApp(QMainWindow):
             self.media_player.pause()
             self.media_player.setPosition(0)
 
+    # ================= #
+    # VideoGraphicsView #
+    # ================= #
+
     @property
     def video_item_size(self) -> tuple[int, int]:
         """
@@ -801,23 +809,15 @@ class VideoLoaderApp(QMainWindow):
 
     @property
     def data_output_file(self) -> Path:
+        """numpy array data output path"""
         file = Path(self.video_path)
         return file.with_stem(f'{file.stem}_pixviz').with_suffix('.npy')
 
     @property
     def meta_output_file(self) -> Path:
+        """meta output path"""
         file = Path(self.video_path)
         return file.with_stem(f'{file.stem}_pixviz_meta').with_suffix('.json')
-
-    def load_result(self) -> None:
-        file_dialog = QFileDialog(self)
-        file_dialog.setNameFilter('Pixviz Result File (*.npy)')
-        file_dialog.setFileMode(QFileDialog.FileMode.ExistingFile)
-
-        if file_dialog.exec():
-            file_path = file_dialog.selectedFiles()[0]
-            self.log_message(f'Loaded Result: {file_path}')
-            self.load_from_file(file_path)
 
     def play_video(self) -> None:
         self.log_message("play", log_type='DEBUG')
@@ -862,31 +862,7 @@ class VideoLoaderApp(QMainWindow):
     def set_position(self, position: int) -> None:
         self.media_player.setPosition(position)
 
-    def keyPressEvent(self, event: QKeyEvent) -> None:
-        """keyboard event handle"""
-        if self.frame_rate is None:
-            return
-
-        current_position = self.media_player.position()
-        frame_duration = 1000.0 / self.frame_rate  # ms
-
-        match event.key():
-
-            case Qt.Key.Key_Right:
-                self.log_message('Right arrow key pressed')  # TODO bugfix receiver
-                new_position = current_position + (10 * frame_duration)
-                self.set_position(int(new_position))
-            case Qt.Key.Key_Left:
-                self.log_message('Left arrow key pressed')  # TODO bugfix receiver
-                new_position = current_position - (10 * frame_duration)
-                self.set_position(int(new_position))
-            case Qt.Key.Key_Space:
-                if self.media_player.playbackState() == QMediaPlayer.PlaybackState.PlayingState:
-                    self.pause_video()
-                else:
-                    self.play_video()
-
-    def process_frame(self) -> None:
+    def video_view_process(self) -> None:
         """realtime proc each frame"""
         self.video_view.process_frame()
 
@@ -945,6 +921,7 @@ class VideoLoaderApp(QMainWindow):
     # ================== #
 
     def process_all_frames(self) -> None:
+        """Process all the frames with the selected ROIs"""
         if len(self.rois) == 0:
             self.log_message('Please set an ROI first.', log_type='ERROR')
             return
@@ -956,6 +933,7 @@ class VideoLoaderApp(QMainWindow):
             self.plot_view.add_axes(name)
 
         self.update_frame_number(0)
+        self.enable_all_buttons(False)
 
         self.frame_processor = FrameProcessor(self.cap, self.rois, self.video_item_size)
         self.frame_processor.progress.connect(self.update_progress_and_frame)
@@ -997,6 +975,7 @@ class VideoLoaderApp(QMainWindow):
 
         np.save(self.data_output_file, ret)
         self.log_message(f'Pixel intensity value saved to directory: {self.data_output_file.parent}', log_type='IO')
+        self.enable_all_buttons(True)
 
     def _save_meta(self):
         ret = {}
@@ -1006,12 +985,49 @@ class VideoLoaderApp(QMainWindow):
         with self.meta_output_file.open('w') as f:
             json.dump(ret, f, sort_keys=True, indent=4)
 
+    def enable_all_buttons(self, enable: bool) -> None:
+        """
+        Enable or disable all the button.
+
+        :param enable: bool
+        """
+        widgets = (
+            self.load_video_button,
+            self.load_result_button,
+            self.roi_button,
+            self.delete_roi_button,
+            self.play_button,
+            self.pause_button,
+            self.process_button
+        )
+
+        for it in widgets:
+            it.setEnabled(enable)
+
     # ============= #
     # Result Reload #
     # ============= #
 
-    def load_from_file(self, file: str) -> None:
-        """Plot from result load"""
+    def load_result(self) -> None:
+        """reload the result"""
+        file_dialog = QFileDialog(self)
+        file_dialog.setNameFilter('Pixviz Result File (*.npy)')
+        file_dialog.setFileMode(QFileDialog.FileMode.ExistingFile)
+
+        if file_dialog.exec():
+            file_path = file_dialog.selectedFiles()[0]
+            self.log_message(f'Loaded Result: {file_path}')
+            self.reload_from_file(file_path)
+
+    def reload_from_file(self, file: str) -> None:
+        """
+        Reload data from the output file
+
+        Require ``*meta.json`` in the same directory
+
+        :param file: ``.npy dataset``
+        :return:
+        """
         file = Path(file)
         dat = np.load(file)
         meta_file = file.with_stem(f'{file.stem}_meta').with_suffix('.json')
@@ -1031,8 +1047,8 @@ class VideoLoaderApp(QMainWindow):
 
         view.canvas.draw()
 
-    def _reload(self, meta: dict[str, Any], dat: np.ndarray):
-
+    def _reload(self, meta: dict[str, Any],
+                dat: np.ndarray):
         # clear existing ROIs from the scene and plot
         self.plot_view.clear_all()
         self.rois.clear()
@@ -1067,11 +1083,29 @@ class VideoLoaderApp(QMainWindow):
             self.video_view.scene().addItem(roi_object.text)
             self.video_view.roi_object[name] = roi_object
 
+        self._disable_button_reload()
+
+    def _disable_button_reload(self) -> None:
+        """disable some button in `reload mode`"""
+        self.roi_button.setEnabled(False)
+        self.delete_roi_button.setEnabled(False)
+        self.process_button.setEnabled(False)
+
     # =========== #
     # Message Log #
     # =========== #
 
-    def log_message(self, message: str, log_type: LOGGING_TYPE = 'INFO', debug_mode: bool = DEBUG_LOGGING) -> None:
+    def log_message(self, message: str,
+                    log_type: LOGGING_TYPE = 'INFO',
+                    debug_mode: bool = DEBUG_LOGGING) -> None:
+        """
+        Log the message in log area
+
+        :param message: message string
+        :param log_type: ``LOGGING_TYPE``: {'DEBUG', 'INFO', 'IO', 'WARNING', 'ERROR'}
+        :param debug_mode: if show the ``DEBUG`` message
+        :return:
+        """
         if not debug_mode and log_type == 'DEBUG':
             return
 
@@ -1100,7 +1134,33 @@ class VideoLoaderApp(QMainWindow):
             case _:
                 return 'white'
 
-    # ======= #
+    # ============== #
+    # Other Controls #
+    # ============== #
+
+    def keyPressEvent(self, event: QKeyEvent) -> None:
+        """keyboard event handle"""
+        if self.frame_rate is None:
+            return
+
+        current_position = self.media_player.position()
+        frame_duration = 1000.0 / self.frame_rate  # ms
+
+        match event.key():
+
+            case Qt.Key.Key_Right:
+                self.log_message('Right arrow key pressed')  # TODO bugfix receiver
+                new_position = current_position + (10 * frame_duration)
+                self.set_position(int(new_position))
+            case Qt.Key.Key_Left:
+                self.log_message('Left arrow key pressed')  # TODO bugfix receiver
+                new_position = current_position - (10 * frame_duration)
+                self.set_position(int(new_position))
+            case Qt.Key.Key_Space:
+                if self.media_player.playbackState() == QMediaPlayer.PlaybackState.PlayingState:
+                    self.pause_video()
+                else:
+                    self.play_video()
 
     def main(self):
         self.show()
