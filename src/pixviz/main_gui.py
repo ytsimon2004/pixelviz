@@ -25,7 +25,8 @@ from pixviz.ui_components import (
     FrameProcessor
 )
 
-__all__ = ['run_gui']
+__all__ = ['PixViewerApp',
+           'run_gui']
 
 
 class PixViewerApp(QMainWindow):
@@ -47,6 +48,7 @@ class PixViewerApp(QMainWindow):
 
     plot_view: PlotView
 
+    instruction_area: QTextEdit
     roi_table: QTableWidget
 
     #
@@ -87,7 +89,7 @@ class PixViewerApp(QMainWindow):
         self.message_log.setReadOnly(True)
 
         # windows
-        self.setWindowTitle("Video Loader")
+        self.setWindowTitle("PixViz")
         self.setGeometry(100, 100, 1200, 800)
 
         # Create a central widget and set the layout
@@ -136,6 +138,29 @@ class PixViewerApp(QMainWindow):
         # ============== #
         # RIGHT SPLITTER #
         # ============== #
+
+        self.instruction_area = QTextEdit()
+        self.instruction_area.setReadOnly(True)
+        self.instruction_area.setStyleSheet("""
+                    QTextEdit {
+                        font-size: 14px;
+                        font-weight: bold;
+                        background-color: #2E2E2E;
+                        color: #26B697;
+                        border: 1px solid #444;
+                        padding: 10px;
+                        text-align: center;
+                    }
+                """)
+        self.instruction_area.setText(
+            "## Keyboard usage ##:\n"
+            "<Right Arrow>: Move forward one second\n"
+            "<Left Arrow>: Move backward one second\n"
+            "<Space>: Play/Pause video\n"
+            "<+>: Increase playback speed\n"
+            "<->: Decrease playback speed"
+        )
+        right_splitter.addWidget(self.instruction_area)
 
         # Table Widget for ROI Details
         self.roi_table = QTableWidget()
@@ -283,19 +308,18 @@ class PixViewerApp(QMainWindow):
             self.total_frames = int(self.cap.get(cv2.CAP_PROP_FRAME_COUNT))
             self.frame_rate = self.cap.get(cv2.CAP_PROP_FPS)
 
-            log_message(self,f'Loaded Video: {file_path}', log_type='IO')
+            log_message(self, f'Loaded Video: {file_path}', log_type='IO')
 
-            # Prompt for the sampling rate
             dialog = FrameRateDialog(default_value=self.frame_rate)
             if dialog.exec() == QDialog.DialogCode.Accepted:
                 self.media_player.setSource(QUrl.fromLocalFile(file_path))
                 self.frame_rate = dialog.get_sampling_rate()
-                log_message(self,f'total frames: {self.total_frames}, frame_rate: {self.frame_rate}')
+                log_message(self, f'total frames: {self.total_frames}, frame_rate: {self.frame_rate}')
                 self.media_player.pause()
                 self.media_player.setPosition(0)
                 self._enable_button_load(True)
             else:
-                log_message(self,'Video loading cancel')
+                log_message(self, 'Video loading cancel')
 
     # ================= #
     # VideoGraphicsView #
@@ -324,33 +348,33 @@ class PixViewerApp(QMainWindow):
         return file.with_stem(f'{file.stem}_pixviz_meta').with_suffix('.json')
 
     def play_video(self) -> None:
-        log_message(self,"play", log_type='DEBUG')
+        log_message(self, "play", log_type='DEBUG')
         self.media_player.play()
         self.timer.start(int(1000 // self.frame_rate))
 
     def pause_video(self) -> None:
-        log_message(self,"pause", log_type='DEBUG')
+        log_message(self, "pause", log_type='DEBUG')
         self.media_player.pause()
         self.timer.stop()
 
     def _handle_media_status(self, status) -> None:
         match status:
             case QMediaPlayer.MediaStatus.EndOfMedia:
-                log_message(self,"End of media reached", log_type='DEBUG')
+                log_message(self, "End of media reached", log_type='DEBUG')
             case QMediaPlayer.MediaStatus.InvalidMedia:
-                log_message(self,"Invalid media", log_type='DEBUG')
+                log_message(self, "Invalid media", log_type='DEBUG')
             case QMediaPlayer.MediaStatus.NoMedia:
-                log_message(self,"No media loaded", log_type='DEBUG')
+                log_message(self, "No media loaded", log_type='DEBUG')
             case QMediaPlayer.MediaStatus.LoadingMedia:
-                log_message(self,"Loading media...", log_type='DEBUG')
+                log_message(self, "Loading media...", log_type='DEBUG')
             case QMediaPlayer.MediaStatus.LoadedMedia:
-                log_message(self,"Media loaded", log_type='DEBUG')
+                log_message(self, "Media loaded", log_type='DEBUG')
             case QMediaPlayer.MediaStatus.BufferedMedia:
-                log_message(self,"Media buffered", log_type='DEBUG')
+                log_message(self, "Media buffered", log_type='DEBUG')
             case QMediaPlayer.MediaStatus.StalledMedia:
-                log_message(self,"Media playback stalled", log_type='DEBUG')
+                log_message(self, "Media playback stalled", log_type='DEBUG')
             case _:
-                log_message(self,f'unknown {status}', log_type='DEBUG')
+                log_message(self, f'unknown {status}', log_type='DEBUG')
 
     def update_duration(self, duration: int) -> None:
         self.progress_bar.setRange(0, duration)
@@ -378,7 +402,7 @@ class PixViewerApp(QMainWindow):
     # ===================== #
 
     def start_drawing_roi(self) -> None:
-        log_message(self,'Enable Drag mode')
+        log_message(self, 'Enable Drag mode')
         self.video_view.start_drawing_roi()
 
     def show_roi_settings_dialog(self, roi_object: RoiLabelObject) -> None:
@@ -413,7 +437,7 @@ class PixViewerApp(QMainWindow):
         """delete the selected roi using the button click"""
         selected_items = self.roi_table.selectedItems()
         if not selected_items:
-            log_message(self,'No ROI selected for deletion.', log_type='ERROR')
+            log_message(self, 'No ROI selected for deletion.', log_type='ERROR')
             return
 
         selected_row = selected_items[0].row()
@@ -429,7 +453,7 @@ class PixViewerApp(QMainWindow):
         #
         self.plot_view.delete_roi_line(roi_name)
 
-        log_message(self,f"Deleted ROI: {roi_name}")
+        log_message(self, f"Deleted ROI: {roi_name}")
 
     # ================== #
     # Batch Process Mode #
@@ -438,7 +462,7 @@ class PixViewerApp(QMainWindow):
     def process_all_frames(self) -> None:
         """Process all the frames with the selected ROIs"""
         if len(self.rois) == 0:
-            log_message(self,'Please set an ROI first.', log_type='ERROR')
+            log_message(self, 'Please set an ROI first.', log_type='ERROR')
             return
 
         self.plot_view.realtime_proc = False
@@ -479,7 +503,7 @@ class PixViewerApp(QMainWindow):
         :param frame_values: name:result
         """
         if frame_values.keys() != self.rois.keys():
-            log_message(self,'roi name index incorrect', log_type='ERROR')
+            log_message(self, 'roi name index incorrect', log_type='ERROR')
 
         self._save_meta()
 
@@ -489,7 +513,7 @@ class PixViewerApp(QMainWindow):
             ret[i] = dat
 
         np.save(self.data_output_file, ret)
-        log_message(self,f'Pixel intensity value saved to directory: {self.data_output_file.parent}', log_type='IO')
+        log_message(self, f'Pixel intensity value saved to directory: {self.data_output_file.parent}', log_type='IO')
         self._enable_all_buttons(True)
 
     def _save_meta(self):
@@ -531,7 +555,7 @@ class PixViewerApp(QMainWindow):
 
         if file_dialog.exec():
             file_path = file_dialog.selectedFiles()[0]
-            log_message(self,f'Loaded Result: {file_path}')
+            log_message(self, f'Loaded Result: {file_path}')
             self.reload_from_file(file_path)
 
     def reload_from_file(self, file: str) -> None:
@@ -626,23 +650,33 @@ class PixViewerApp(QMainWindow):
             return
 
         current_position = self.media_player.position()
-        frame_duration = 1000.0 / self.frame_rate  # ms
+        frame_duration = 1000.0 / self.frame_rate  # ms in a frame
 
         match event.key():
 
             case Qt.Key.Key_Right:
-                log_message(self,'Right arrow key pressed')  # TODO check receiver
-                new_position = current_position + (10 * frame_duration)
+                new_position = current_position + (self.frame_rate * frame_duration)
                 self.set_position(int(new_position))
+                log_message(self, '+1 sec')
             case Qt.Key.Key_Left:
-                log_message(self,'Left arrow key pressed')  # TODO check receiver
-                new_position = current_position - (10 * frame_duration)
+                new_position = current_position - (self.frame_rate * frame_duration)
                 self.set_position(int(new_position))
+                log_message(self, '-1 sec')
             case Qt.Key.Key_Space:
                 if self.media_player.playbackState() == QMediaPlayer.PlaybackState.PlayingState:
                     self.pause_video()
                 else:
                     self.play_video()
+            case Qt.Key.Key_Plus | Qt.Key.Key_Equal:
+                current_rate = self.media_player.playbackRate()
+                new_rate = min(current_rate + 0.5, 8)  # max to 8x
+                self.media_player.setPlaybackRate(new_rate)
+                log_message(self, f'Playback speed increased to {new_rate}')
+            case Qt.Key.Key_Minus:
+                current_rate = self.media_player.playbackRate()
+                new_rate = max(current_rate - 0.5, 0.1)  # min to 0.1x
+                self.media_player.setPlaybackRate(new_rate)
+                log_message(self, f'Playback speed decreased to {new_rate}')
 
     def main(self):
         self.show()

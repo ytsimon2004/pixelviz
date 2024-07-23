@@ -7,9 +7,7 @@
 
 # Bugfix
 
-- [ ] log Instance usage
 
 # Enhancement
 
 - [ ] resize issue after load video
-- [ ] add keyboard usage
