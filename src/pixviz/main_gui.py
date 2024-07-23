@@ -67,12 +67,16 @@ class VideoLoaderApp(QMainWindow):
         self.total_frames: int | None = None
         self.frame_rate: float | None = None
 
+        # reload
+        self.reload_mode: bool = False
+
         # container for roi_name:elements in QGraphicsVideoItem
         self.rois: dict[str, RoiLabelObject] = {}
 
         #
         self.setup_layout()
         self.setup_controller()
+        self._enable_button_load(False)
 
         self.timer = QTimer()
         self.timer.timeout.connect(self.video_view_process)
@@ -254,6 +258,16 @@ class VideoLoaderApp(QMainWindow):
         self.video_view.roi_complete_signal.connect(self.show_roi_settings_dialog)
         self.video_view.roi_average_signal.connect(self.plot_view.add_realtime_plot)
 
+    def _enable_button_load(self, enable: bool) -> None:
+        """Enable or disable some buttons before/after load video"""
+        self.play_button.setEnabled(enable)
+        self.pause_button.setEnabled(enable)
+
+        if not self.reload_mode:
+            self.roi_button.setEnabled(enable)
+            self.delete_roi_button.setEnabled(enable)
+            self.process_button.setEnabled(enable)
+
     def load_video(self) -> None:
         file_dialog = QFileDialog(self)
         file_dialog.setNameFilter("Video Files (*.mp4 *.avi *.mov *.mkv)")
@@ -276,6 +290,7 @@ class VideoLoaderApp(QMainWindow):
                 log_message(f'total frames: {self.total_frames}, frame_rate: {self.frame_rate}')
                 self.media_player.pause()
                 self.media_player.setPosition(0)
+                self._enable_button_load(True)
             else:
                 log_message('Video loading cancel')
 
@@ -422,7 +437,7 @@ class VideoLoaderApp(QMainWindow):
             self.plot_view.add_axes(name)
 
         self.update_frame_number(0)
-        self.enable_all_buttons(False)
+        self._enable_all_buttons(False)
 
         self.frame_processor = FrameProcessor(self.cap, self.rois, self.video_item_size)
         self.frame_processor.progress.connect(self.update_progress_and_frame)
@@ -464,7 +479,7 @@ class VideoLoaderApp(QMainWindow):
 
         np.save(self.data_output_file, ret)
         log_message(f'Pixel intensity value saved to directory: {self.data_output_file.parent}', log_type='IO')
-        self.enable_all_buttons(True)
+        self._enable_all_buttons(True)
 
     def _save_meta(self):
         ret = {}
@@ -474,7 +489,7 @@ class VideoLoaderApp(QMainWindow):
         with self.meta_output_file.open('w') as f:
             json.dump(ret, f, sort_keys=True, indent=4)
 
-    def enable_all_buttons(self, enable: bool) -> None:
+    def _enable_all_buttons(self, enable: bool) -> None:
         """
         Enable or disable all the button.
 
@@ -524,6 +539,7 @@ class VideoLoaderApp(QMainWindow):
             meta = json.load(file)
 
         #
+        self.reload_mode = True
         self.plot_view.enable_axvline = True
         self.plot_view.set_axvline()
         self._reload(meta, dat)

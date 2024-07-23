@@ -27,7 +27,7 @@ from pixviz.roi import RoiLabelObject, PIXEL_CAL_FUNCTION, compute_pixel_intensi
 
 __all__ = ['FrameRateDialog',
            'RoiSettingsDialog',
-           'VideoLoaderApp',
+           'VideoGraphicsView',
            'PlotView',
            'FrameProcessor']
 

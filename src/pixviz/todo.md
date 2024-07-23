@@ -13,4 +13,4 @@
 # Enhancement
 
 - [ ] resize issue after load video
-- [ ] when process all button disable except mplqt
+- [ ] add keyboard usage
