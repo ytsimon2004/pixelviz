@@ -394,9 +394,17 @@ class VideoLoaderApp(QMainWindow):
     def update_roi_table(self) -> None:
         self.roi_table.setRowCount(len(self.rois))
         for row, (name, roi) in enumerate(self.rois.items()):
-            self.roi_table.setItem(row, 0, QTableWidgetItem(name))
-            self.roi_table.setItem(row, 1, QTableWidgetItem(str(roi.rect_item.rect())))
-            self.roi_table.setItem(row, 2, QTableWidgetItem(roi.func))
+            name_item = QTableWidgetItem(name)
+            name_item.setFlags(name_item.flags() & ~Qt.ItemFlag.ItemIsEditable)  # non-editable
+            self.roi_table.setItem(row, 0, name_item)
+
+            rect_item = QTableWidgetItem(str(roi.rect_item.rect()))
+            rect_item.setFlags(name_item.flags() & ~Qt.ItemFlag.ItemIsEditable)  # non-editable
+            self.roi_table.setItem(row, 1, rect_item)
+
+            func_item = QTableWidgetItem(roi.func)
+            func_item.setFlags(name_item.flags() & ~Qt.ItemFlag.ItemIsEditable)  # non-editable
+            self.roi_table.setItem(row, 2, func_item)
 
     def delete_selected_roi(self) -> None:
         """delete the selected roi using the button click"""
@@ -562,9 +570,17 @@ class VideoLoaderApp(QMainWindow):
 
         self.roi_table.setRowCount(len(meta))
         for i, (name, it) in enumerate(meta.items()):
-            self.roi_table.setItem(i, 0, QTableWidgetItem(name))
-            self.roi_table.setItem(i, 1, QTableWidgetItem(it['item']))
-            self.roi_table.setItem(i, 2, QTableWidgetItem(it['func']))
+            name_item = QTableWidgetItem(name)
+            name_item.setFlags(name_item.flags() & ~Qt.ItemFlag.ItemIsEditable)  # non-editable
+            self.roi_table.setItem(i, 0, name_item)
+
+            rect_item = QTableWidgetItem(it['item'])
+            rect_item.setFlags(name_item.flags() & ~Qt.ItemFlag.ItemIsEditable)  # non-editable
+            self.roi_table.setItem(i, 1, rect_item)
+
+            func_item = QTableWidgetItem(it['func'])
+            func_item.setFlags(name_item.flags() & ~Qt.ItemFlag.ItemIsEditable)  # non-editable
+            self.roi_table.setItem(i, 2, func_item)
 
             self.plot_view.add_axes(name)
             d = dat[i]
