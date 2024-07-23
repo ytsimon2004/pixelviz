@@ -30,3 +30,26 @@ Indices and tables
 * :ref:`genindex`
 * :ref:`modindex`
 * :ref:`search`
+
+
+
+To be implemented
+===================
+
+Features
+---------
+
+.. task-list::
+   :custom:
+
+   - [ ] Different shape of ROIs, allow upload reference figure, for zoom in and out
+   - [ ] Save as .mat option
+
+
+Enhancement
+------------
+
+.. task-list::
+   :custom:
+
+   - [ ] Resize issue after load video

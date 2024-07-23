@@ -2,7 +2,7 @@ import json
 import re
 import sys
 from pathlib import Path
-from typing import ClassVar, Any
+from typing import Any
 
 import cv2
 import numpy as np
@@ -15,7 +15,6 @@ from PyQt6.QtWidgets import (
 )
 from matplotlib import pyplot as plt
 
-from pixviz.ui_logging import log_message
 from pixviz.roi import RoiLabelObject
 from pixviz.ui_components import (
     FrameRateDialog,
@@ -24,37 +23,52 @@ from pixviz.ui_components import (
     PlotView,
     FrameProcessor
 )
+from pixviz.ui_logging import log_message
 
-__all__ = ['PixViewerApp',
+__all__ = ['PixVizGUI',
            'run_gui']
 
 
-class PixViewerApp(QMainWindow):
+class PixVizGUI(QMainWindow):
     load_video_button: QPushButton
+    """load video"""
     load_result_button: QPushButton
+    """load processed result"""
 
     video_view: VideoGraphicsView
+    """graphic view for video"""
     media_player: QMediaPlayer
-    audio_output: QAudioOutput
-
-    progress_bar: QSlider
-    message_log: QTextEdit
+    """media player for video"""
+    video_progress_slider: QSlider
+    """video progress bar"""
 
     play_button: QPushButton
+    """video play"""
     pause_button: QPushButton
-
-    roi_button: QPushButton
-    delete_roi_button: QPushButton
+    """video pause"""
 
     plot_view: PlotView
+    """mpl plot view"""
+
+    roi_table: QTableWidget
+    """table for selected rois"""
+    roi_button: QPushButton
+    """drag roi"""
+    delete_roi_button: QPushButton
+    """delete the dragged roi"""
 
     instruction_area: QTextEdit
-    roi_table: QTableWidget
+    """keyboard instruction"""
 
-    #
     frame_processor: FrameProcessor
+    """process(compute) the frame(s)"""
     process_button: QPushButton
+    """process all"""
     process_progress: QProgressBar
+    """progress bar for process all"""
+
+    message_log: QTextEdit
+    """logging message"""
 
     def __init__(self):
         super().__init__()
@@ -71,17 +85,18 @@ class PixViewerApp(QMainWindow):
         # container for roi_name:elements in QGraphicsVideoItem
         self.rois: dict[str, RoiLabelObject] = {}
 
-        #
         self.setup_layout()
         self.setup_controller()
-        self._enable_button_load(False)
+        self._enable_button_load(False)  # button status before load
 
+        # for realtime process
         self.timer = QTimer()
         self.timer.timeout.connect(self.video_view_process)
 
-        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)  # focus for keyboard event
 
     def setup_layout(self) -> None:
+        """setup layout for the GUI"""
         self._set_dark_theme()
 
         # message log
@@ -120,9 +135,9 @@ class PixViewerApp(QMainWindow):
         media_control_widget = QWidget()
         media_control_widget.setLayout(media_control_layout)
 
-        self.progress_bar = QSlider(Qt.Orientation.Horizontal)
-        self.progress_bar.setRange(0, 100)
-        media_control_layout.addWidget(self.progress_bar)
+        self.video_progress_slider = QSlider(Qt.Orientation.Horizontal)
+        self.video_progress_slider.setRange(0, 100)
+        media_control_layout.addWidget(self.video_progress_slider)
 
         self.play_button = QPushButton("Play")
         media_control_layout.addWidget(self.play_button)
@@ -259,7 +274,7 @@ class PixViewerApp(QMainWindow):
         plt.style.use('dark_background')
 
     def setup_controller(self) -> None:
-        """controller for widgets"""
+        """setup controller for widgets"""
         # buttons
         self.load_video_button.clicked.connect(self.load_video)
         self.load_result_button.clicked.connect(self.load_result)
@@ -274,7 +289,7 @@ class PixViewerApp(QMainWindow):
         # media
         self.media_player.durationChanged.connect(self.update_duration)
         self.media_player.positionChanged.connect(self.update_position)
-        self.progress_bar.sliderMoved.connect(self.set_position)
+        self.video_progress_slider.sliderMoved.connect(self.set_position)
         self.media_player.mediaStatusChanged.connect(self._handle_media_status)
 
         # rois
@@ -283,7 +298,7 @@ class PixViewerApp(QMainWindow):
         self.video_view.focusOutEvent = self._on_focus_out_event
 
     def _on_focus_out_event(self, event):
-        """focus after drag roi"""
+        """focus after drag roi (for keyboard event focus)"""
         self.setFocus()
 
     def _enable_button_load(self, enable: bool) -> None:
@@ -297,6 +312,7 @@ class PixViewerApp(QMainWindow):
             self.process_button.setEnabled(enable)
 
     def load_video(self) -> None:
+        """load the video, trigger after load_video button clicked"""
         file_dialog = QFileDialog(self)
         file_dialog.setNameFilter("Video Files (*.mp4 *.avi *.mov *.mkv)")
         file_dialog.setFileMode(QFileDialog.FileMode.ExistingFile)
@@ -348,16 +364,19 @@ class PixViewerApp(QMainWindow):
         return file.with_stem(f'{file.stem}_pixviz_meta').with_suffix('.json')
 
     def play_video(self) -> None:
+        """play the video"""
         log_message(self, "play", log_type='DEBUG')
         self.media_player.play()
         self.timer.start(int(1000 // self.frame_rate))
 
     def pause_video(self) -> None:
+        """pause the video"""
         log_message(self, "pause", log_type='DEBUG')
         self.media_player.pause()
         self.timer.stop()
 
     def _handle_media_status(self, status) -> None:
+        """check media status"""
         match status:
             case QMediaPlayer.MediaStatus.EndOfMedia:
                 log_message(self, "End of media reached", log_type='DEBUG')
@@ -377,13 +396,30 @@ class PixViewerApp(QMainWindow):
                 log_message(self, f'unknown {status}', log_type='DEBUG')
 
     def update_duration(self, duration: int) -> None:
-        self.progress_bar.setRange(0, duration)
+        """
+        Update the video duration in the progress slider
+
+        :param duration: The duration of the video.
+        :return:
+        """
+        self.video_progress_slider.setRange(0, duration)
 
     def update_position(self, position: int) -> None:
-        self.progress_bar.setValue(position)
+        """
+        Update the position of the video
+
+        :param position: The current position of the video
+        :return:
+        """
+        self.video_progress_slider.setValue(position)
         self.update_frame_number(position)
 
     def update_frame_number(self, position: int) -> None:
+        """
+        Update the frame number based on the video position.
+
+        :param position: The current position of the video.
+        """
         frame_number = int((position / 1000.0) * self.frame_rate)
         self.video_view.frame_label.setText(f"Frame: {frame_number}")
 
@@ -391,6 +427,11 @@ class PixViewerApp(QMainWindow):
             self.plot_view.update_vertical_line_position(frame_number)
 
     def set_position(self, position: int) -> None:
+        """
+        Set the position of the video.
+
+        :param position: The position to set the video to.
+        """
         self.media_player.setPosition(position)
 
     def video_view_process(self) -> None:
@@ -402,10 +443,15 @@ class PixViewerApp(QMainWindow):
     # ===================== #
 
     def start_drawing_roi(self) -> None:
+        """Enable drawing mode for ROI"""
         log_message(self, 'Enable Drag mode')
         self.video_view.start_drawing_roi()
 
     def show_roi_settings_dialog(self, roi_object: RoiLabelObject) -> None:
+        """Show the ROI settings dialog after drawing
+
+        :param roi_object: ``RoiLabelObject`` to configure
+        """
         dialog = RoiSettingsDialog(roi_object, self)
         if dialog.exec() == QDialog.DialogCode.Accepted:
             self.rois[roi_object.name] = roi_object
@@ -419,6 +465,7 @@ class PixViewerApp(QMainWindow):
             self.plot_view.add_axes(roi_object.name)
 
     def update_roi_table(self) -> None:
+        """Update the ROI table with current ROIs"""
         self.roi_table.setRowCount(len(self.rois))
         for row, (name, roi) in enumerate(self.rois.items()):
             name_item = QTableWidgetItem(name)
@@ -482,8 +529,8 @@ class PixViewerApp(QMainWindow):
     @pyqtSlot(int)
     def update_progress_and_frame(self, frame_number: int) -> None:
         """
-
-        :param frame_number:
+        Update the progress and frame during processing
+        :param frame_number: processing frame number
         :return:
         """
         progress_value = int((frame_number / self.total_frames) * 100)
@@ -590,6 +637,9 @@ class PixViewerApp(QMainWindow):
 
     def _reload(self, meta: dict[str, Any],
                 dat: np.ndarray):
+        """Reload the ROIs and data from the meta information and dataset,
+        then show in ``roi_table``, ``plot_view``, objects in ``video_view``
+        """
         # clear existing ROIs from the scene and plot
         self.plot_view.clear_all()
         self.rois.clear()
@@ -685,7 +735,7 @@ class PixViewerApp(QMainWindow):
 
 def run_gui():
     app = QApplication(sys.argv)
-    window = PixViewerApp()
+    window = PixVizGUI()
     window.main()
     sys.exit(app.exec())
 

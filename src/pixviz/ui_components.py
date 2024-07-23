@@ -2,7 +2,7 @@ import traceback
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from .main_gui import PixViewerApp
+    from .main_gui import PixVizGUI
 
 import cv2
 import numpy as np
@@ -102,7 +102,7 @@ class RoiSettingsDialog(QDialog):
     ok_button: QPushButton
     cancel_button: QPushButton
 
-    def __init__(self, roi_object: RoiLabelObject, app: 'PixViewerApp'):
+    def __init__(self, roi_object: RoiLabelObject, app: 'PixVizGUI'):
         super().__init__()
 
         self.roi_object = roi_object
@@ -322,7 +322,7 @@ class PlotView(QWidget):
     clear_button: QPushButton
     canvas: FigureCanvas
 
-    def __init__(self, app: 'PixViewerApp', *args, **kwargs):
+    def __init__(self, app: 'PixVizGUI', *args, **kwargs):
         super().__init__(*args, **kwargs)
 
         self.app = app
@@ -485,7 +485,7 @@ class FrameProcessor(QThread):
     """Processed Result"""
 
     def __init__(self,
-                 app: 'PixViewerApp',
+                 app: 'PixVizGUI',
                  cap: cv2.VideoCapture,
                  rois: dict[str, RoiLabelObject],
                  view_size: tuple[int, int]):

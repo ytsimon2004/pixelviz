@@ -4,7 +4,7 @@ from typing import Literal, TYPE_CHECKING
 from PyQt6.QtGui import QTextCursor
 
 if TYPE_CHECKING:
-    from .main_gui import PixViewerApp
+    from .main_gui import PixVizGUI
 
 __all__ = ['LOGGING_TYPE',
            'DEBUG_LOGGING',
@@ -14,7 +14,7 @@ LOGGING_TYPE = Literal['DEBUG', 'INFO', 'IO', 'WARNING', 'ERROR']
 DEBUG_LOGGING = False
 
 
-def log_message(app: 'PixViewerApp', message: str, log_type: LOGGING_TYPE = 'INFO',
+def log_message(app: 'PixVizGUI', message: str, log_type: LOGGING_TYPE = 'INFO',
                 debug_mode: bool = DEBUG_LOGGING) -> None:
     if not debug_mode and log_type == 'DEBUG':
         return

@@ -1,2 +1,3 @@
 nbsphinx
-sphinx-pdj-theme
+sphinx-book-theme
+sphinx-immaterial
