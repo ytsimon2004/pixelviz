@@ -11,6 +11,7 @@ from PyQt6.QtWidgets import QGraphicsRectItem, QGraphicsTextItem
 __all__ = [
     'PIXEL_CAL_FUNCTION',
     'RoiLabelObject',
+    'PixVizResult',
     'compute_pixel_intensity'
 ]
 
