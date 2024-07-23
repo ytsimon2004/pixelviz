@@ -81,6 +81,8 @@ class VideoLoaderApp(QMainWindow):
         self.timer = QTimer()
         self.timer.timeout.connect(self.video_view_process)
 
+        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+
     def setup_layout(self) -> None:
         self._set_dark_theme()
 
@@ -257,6 +259,11 @@ class VideoLoaderApp(QMainWindow):
         # rois
         self.video_view.roi_complete_signal.connect(self.show_roi_settings_dialog)
         self.video_view.roi_average_signal.connect(self.plot_view.add_realtime_plot)
+        self.video_view.focusOutEvent = self._on_focus_out_event
+
+    def _on_focus_out_event(self, event):
+        """focus after drag roi"""
+        self.setFocus()
 
     def _enable_button_load(self, enable: bool) -> None:
         """Enable or disable some buttons before/after load video"""
