@@ -17,6 +17,29 @@ __all__ = [
 PIXEL_CAL_FUNCTION = Literal['mean', 'median']
 
 
+def compute_pixel_intensity(image: QImage | np.ndarray,
+                            func: PIXEL_CAL_FUNCTION) -> float:
+    """
+
+    :param image:
+    :param func:
+    :return:
+    """
+    if isinstance(image, QImage):
+        import qimage2ndarray
+        img = qimage2ndarray.rgb_view(image)
+    elif isinstance(image, np.ndarray) and image.ndim == 3:  # RGB
+        img = image
+    else:
+        raise TypeError('')
+
+    img = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
+    if func == 'mean':
+        return float(np.mean(img))
+    elif func == 'median':
+        return float(np.median(img))
+
+
 class RoiLabelObject:
     rect_item: QGraphicsRectItem | None
     """set after selection"""
@@ -72,29 +95,6 @@ class RoiLabelObject:
                     index=idx,
                     item=str(self.rect_item.rect()),
                     func=self.func)
-
-
-def compute_pixel_intensity(image: QImage | np.ndarray,
-                            func: PIXEL_CAL_FUNCTION) -> float:
-    """
-
-    :param image:
-    :param func:
-    :return:
-    """
-    if isinstance(image, QImage):
-        import qimage2ndarray
-        img = qimage2ndarray.rgb_view(image)
-    elif isinstance(image, np.ndarray) and image.ndim == 3:  # RGB
-        img = image
-    else:
-        raise TypeError('')
-
-    img = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
-    if func == 'mean':
-        return float(np.mean(img))
-    elif func == 'median':
-        return float(np.median(img))
 
 
 # =========== #
@@ -192,4 +192,3 @@ class PixVizResult:
     def n_frames(self) -> int:
         """number of frames (sequences)"""
         return self.dat.shape[1]
-
