@@ -1,7 +1,10 @@
 import datetime
-from typing import Literal
+from typing import Literal, TYPE_CHECKING
 
 from PyQt6.QtGui import QTextCursor
+
+if TYPE_CHECKING:
+    from .main_gui import PixViewerApp
 
 __all__ = ['LOGGING_TYPE',
            'DEBUG_LOGGING',
@@ -11,15 +14,8 @@ LOGGING_TYPE = Literal['DEBUG', 'INFO', 'IO', 'WARNING', 'ERROR']
 DEBUG_LOGGING = False
 
 
-def log_message(message: str, log_type: LOGGING_TYPE = 'INFO', debug_mode: bool = DEBUG_LOGGING) -> None:
-    from main_gui import VideoLoaderApp
-
-    app_instance = VideoLoaderApp().INSTANCE
-
-    if not app_instance:
-        print(message)
-        return
-
+def log_message(app: 'PixViewerApp', message: str, log_type: LOGGING_TYPE = 'INFO',
+                debug_mode: bool = DEBUG_LOGGING) -> None:
     if not debug_mode and log_type == 'DEBUG':
         return
 
@@ -27,11 +23,11 @@ def log_message(message: str, log_type: LOGGING_TYPE = 'INFO', debug_mode: bool 
     color = _get_log_type_color(log_type)
     log_entry = f'<span style="color:{color};">[{timestamp}] [{log_type}] - {message}</span><br>'
 
-    if app_instance.message_log is None:
+    if app.message_log is None:
         print(message)
     else:
-        app_instance.message_log.insertHtml(log_entry)
-        app_instance.message_log.moveCursor(QTextCursor.MoveOperation.End)
+        app.message_log.insertHtml(log_entry)
+        app.message_log.moveCursor(QTextCursor.MoveOperation.End)
 
 
 def _get_log_type_color(log_type: LOGGING_TYPE) -> str:

@@ -2,7 +2,7 @@ import traceback
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from .main_gui import VideoLoaderApp
+    from .main_gui import PixViewerApp
 
 import cv2
 import numpy as np
@@ -102,7 +102,7 @@ class RoiSettingsDialog(QDialog):
     ok_button: QPushButton
     cancel_button: QPushButton
 
-    def __init__(self, roi_object: RoiLabelObject, app: 'VideoLoaderApp'):
+    def __init__(self, roi_object: RoiLabelObject, app: 'PixViewerApp'):
         super().__init__()
 
         self.roi_object = roi_object
@@ -180,7 +180,7 @@ class RoiSettingsDialog(QDialog):
         if text in self.app.rois:
             self.name_input.setStyleSheet("QLineEdit {background-color: red;}")
             self.ok_button.setEnabled(False)
-            log_message(f'{text} exists', log_type='ERROR')
+            log_message(self.app, f'{text} exists', log_type='ERROR')
         else:
             self.name_input.setStyleSheet("QLineEdit {background-color: black;}")
             self.ok_button.setEnabled(True)
@@ -195,7 +195,7 @@ class RoiSettingsDialog(QDialog):
         """action of clicking `OK`"""
         self.roi_object.func = self.get_calculated_func()
         self.roi_object.set_name(self.name_input.text())
-        log_message(f"ROI name: {self.roi_object.name}, Calculation method: {self.roi_object.func}")
+        log_message(self.app, f"ROI name: {self.roi_object.name}, Calculation method: {self.roi_object.func}")
         self.accept()
 
     def _reject(self):
@@ -322,9 +322,10 @@ class PlotView(QWidget):
     clear_button: QPushButton
     canvas: FigureCanvas
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, app: 'PixViewerApp', *args, **kwargs):
         super().__init__(*args, **kwargs)
 
+        self.app = app
         self.setup_layout()
         self.setup_controller()
 
@@ -393,7 +394,7 @@ class PlotView(QWidget):
             self.x_data[roi_name] = []
             self.y_data[roi_name] = []
         except KeyError:
-            log_message(f'{roi_name} not exist', log_type='ERROR')
+            log_message(self.app, f'{roi_name} not exist', log_type='ERROR')
 
     def clear_all(self):
         self.x_data = {}
@@ -484,11 +485,13 @@ class FrameProcessor(QThread):
     """Processed Result"""
 
     def __init__(self,
+                 app: 'PixViewerApp',
                  cap: cv2.VideoCapture,
                  rois: dict[str, RoiLabelObject],
                  view_size: tuple[int, int]):
 
         super().__init__()
+        self.app = app
         self.cap = cap
         self.rois = rois
 
@@ -517,7 +520,7 @@ class FrameProcessor(QThread):
                 self.progress.emit(frame_number)
 
             except Exception as e:
-                log_message(f'Frame {frame_number} generated an exception: {e}', log_type='ERROR')
+                log_message(self.app, f'Frame {frame_number} generated an exception: {e}', log_type='ERROR')
                 traceback.print_exc()
 
         self.results.emit(self.proc_results)
