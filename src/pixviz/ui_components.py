@@ -23,7 +23,7 @@ from matplotlib.lines import Line2D
 
 from pixviz.ui_logging import log_message
 
-from pixviz.roi import RoiLabelObject, PIXEL_CAL_FUNCTION, compute_pixel_intensity
+from pixviz.roi import RoiLabelObject, PIXEL_CAL_FUNCTION, compute_pixel_intensity, RoiName
 
 __all__ = ['FrameRateDialog',
            'RoiSettingsDialog',
@@ -225,7 +225,7 @@ class VideoGraphicsView(QGraphicsView):
         self.drawing_roi: bool = False  # isDrawing flag
         self.roi_start_pos = None
         self.current_roi_rect_item: QGraphicsRectItem | None = None
-        self.roi_object: dict[str, RoiLabelObject] = {}
+        self.roi_object: dict[RoiName, RoiLabelObject] = {}
 
         #
         self.media_player = None
@@ -334,7 +334,7 @@ class PlotView(QWidget):
         self.x_data = {}
         self.y_data = {}
 
-        self._roi_lines: dict[str, Line2D] = {}
+        self._roi_lines: dict[RoiName, Line2D] = {}
 
         self.ax = self.canvas.figure.subplots()
         self._set_axes()
@@ -365,7 +365,7 @@ class PlotView(QWidget):
     def setup_controller(self):
         self.clear_button.clicked.connect(self.clear_axes)
 
-    def add_axes(self, roi_name: str, **kwargs):
+    def add_axes(self, roi_name: RoiName, **kwargs):
         """
         add axes for a given ROI name
 
@@ -378,7 +378,7 @@ class PlotView(QWidget):
         self.y_data[roi_name] = []
         self.ax.legend()
 
-    def delete_roi_line(self, roi_name: str):
+    def delete_roi_line(self, roi_name: RoiName):
         """
         Remove line, legend, and
 
@@ -413,7 +413,7 @@ class PlotView(QWidget):
             self.add_axes(name)
 
     def update_plot(self,
-                    frame_result: dict[str, np.ndarray],
+                    frame_result: dict[RoiName, np.ndarray],
                     start: int | None = None,
                     end: int | None = None):
         """
@@ -444,7 +444,7 @@ class PlotView(QWidget):
 
         self.canvas.draw()
 
-    def add_realtime_plot(self, values: dict[str, float]):
+    def add_realtime_plot(self, values: dict[RoiName, float]):
         """
 
         :param values: roi name: value
@@ -487,7 +487,7 @@ class FrameProcessor(QThread):
     def __init__(self,
                  app: 'PixVizGUI',
                  cap: cv2.VideoCapture,
-                 rois: dict[str, RoiLabelObject],
+                 rois: dict[RoiName, RoiLabelObject],
                  view_size: tuple[int, int]):
 
         super().__init__()
@@ -499,7 +499,7 @@ class FrameProcessor(QThread):
         self.frame_rate = self.cap.get(cv2.CAP_PROP_FPS)
 
         self.view_size = view_size
-        self.proc_results: dict[str, np.ndarray] = {
+        self.proc_results: dict[RoiName, np.ndarray] = {
             name: np.full(self.total_frames, np.nan)
             for name in self.rois.keys()
         }
@@ -525,7 +525,7 @@ class FrameProcessor(QThread):
 
         self.results.emit(self.proc_results)
 
-    def process_single_frame(self) -> dict[str, float]:
+    def process_single_frame(self) -> dict[RoiName, float]:
         _, frame = self.cap.read()
 
         frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)

@@ -1,6 +1,6 @@
 import json
 from pathlib import Path
-from typing import Literal, Any
+from typing import Literal, Any, TypeAlias
 
 import cv2
 import numpy as np
@@ -9,11 +9,14 @@ from PyQt6.QtGui import QColor, QFont, QImage
 from PyQt6.QtWidgets import QGraphicsRectItem, QGraphicsTextItem
 
 __all__ = [
+    'RoiName',
     'PIXEL_CAL_FUNCTION',
+    'compute_pixel_intensity',
     'RoiLabelObject',
     'PixVizResult',
-    'compute_pixel_intensity'
 ]
+
+RoiName: TypeAlias = str
 
 PIXEL_CAL_FUNCTION = Literal['mean', 'median']
 
@@ -21,9 +24,10 @@ PIXEL_CAL_FUNCTION = Literal['mean', 'median']
 def compute_pixel_intensity(image: QImage | np.ndarray,
                             func: PIXEL_CAL_FUNCTION) -> float:
     """
+    Compute the selected area pixel intensity
 
-    :param image:
-    :param func:
+    :param image: image object, either ``PyQt6.QtGui.QImage`` or image ``numpy.array``
+    :param func: ``PIXEL_CAL_FUNCTION`` {'mean', 'median'}
     :return:
     """
     if isinstance(image, QImage):
@@ -61,12 +65,11 @@ class RoiLabelObject:
         self.func = 'mean'
         self.data = None
 
-    def __repr__(self):
-        return f'RoiLabelObject: {self.name}'
+    def set_name(self, name: RoiName) -> None:
+        """set name, text and background of the selected area
 
-    __str__ = __repr__
-
-    def set_name(self, name: str) -> None:
+        :param name: roi name
+        """
         self.name = name
 
         text_item = QGraphicsTextItem(name)
@@ -89,9 +92,11 @@ class RoiLabelObject:
         self.background = background_rect
 
     def set_data(self, data: np.ndarray) -> None:
+        """set calculated pixel intensity data"""
         self.data = data
 
     def to_meta(self, idx: int) -> dict[str, Any]:
+        """to meta for saving"""
         return dict(name=self.name,
                     index=idx,
                     item=str(self.rect_item.rect()),
@@ -127,10 +132,6 @@ class PixVizResult:
             self.meta = json.load(file)
 
     @classmethod
-    def load_from_directory(cls, directory: Path | str):
-        pass
-
-    @classmethod
     def load(cls,
              dat: Path | str,
              meta: Path | str):
@@ -145,7 +146,7 @@ class PixVizResult:
 
     __str__ = __repr__
 
-    def get_index(self, name: str) -> int:
+    def get_index(self, name: RoiName) -> int:
         """
         Get `index` from `roi name`
 
@@ -154,7 +155,7 @@ class PixVizResult:
         """
         return self.meta[name]['index']
 
-    def get_data(self, source: int | str) -> np.ndarray:
+    def get_data(self, source: int | RoiName) -> np.ndarray:
         """
         Get roi data from either `index` or `name`
 

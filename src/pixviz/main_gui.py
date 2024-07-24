@@ -8,14 +8,14 @@ import cv2
 import numpy as np
 from PyQt6.QtCore import Qt, QUrl, QRectF, QTimer, pyqtSlot
 from PyQt6.QtGui import QPen, QColor, QKeyEvent
-from PyQt6.QtMultimedia import QMediaPlayer, QAudioOutput
+from PyQt6.QtMultimedia import QMediaPlayer
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QPushButton, QFileDialog, QWidget, QHBoxLayout, QSlider, QTextEdit, QGraphicsRectItem,
     QSplitter, QDialog, QProgressBar, QTableWidget, QTableWidgetItem
 )
 from matplotlib import pyplot as plt
 
-from pixviz.roi import RoiLabelObject
+from pixviz.roi import RoiLabelObject, RoiName
 from pixviz.ui_components import (
     FrameRateDialog,
     RoiSettingsDialog,
@@ -83,7 +83,7 @@ class PixVizGUI(QMainWindow):
         self.reload_mode: bool = False
 
         # container for roi_name:elements in QGraphicsVideoItem
-        self.rois: dict[str, RoiLabelObject] = {}
+        self.rois: dict[RoiName, RoiLabelObject] = {}
 
         self.setup_layout()
         self.setup_controller()
@@ -543,7 +543,7 @@ class PixVizGUI(QMainWindow):
             self.plot_view.update_plot(self.frame_processor.proc_results, start=0, end=frame_number + 1)
 
     @pyqtSlot(dict)
-    def save_frame_values(self, frame_values: dict[str, np.ndarray]) -> None:
+    def save_frame_values(self, frame_values: dict[RoiName, np.ndarray]) -> None:
         """
         Save meta info (`.json`) and (R, F) numpy ndarray (`.npy`)
 
@@ -635,7 +635,7 @@ class PixVizGUI(QMainWindow):
 
         self.plot_view.canvas.draw()
 
-    def _reload(self, meta: dict[str, Any],
+    def _reload(self, meta: dict[RoiName, Any],
                 dat: np.ndarray):
         """Reload the ROIs and data from the meta information and dataset,
         then show in ``roi_table``, ``plot_view``, objects in ``video_view``
