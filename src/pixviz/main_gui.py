@@ -90,8 +90,9 @@ class PixVizGUI(QMainWindow):
         self._enable_button_load(False)  # button status before load
 
         # for realtime process
-        self.timer = QTimer()
-        self.timer.timeout.connect(self.video_view_process)
+        if not self.reload_mode:
+            self.timer = QTimer()
+            self.timer.timeout.connect(self.video_view_process)
 
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)  # focus for keyboard event
 

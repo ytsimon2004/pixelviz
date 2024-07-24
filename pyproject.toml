@@ -1,6 +1,6 @@
 [project]
 name = "pixviz"
-version = "0.0.0"
+version = "1.0.0"
 requires-python = ">=3.10"
 description = "GUI for image sequences pixel analysis"
 authors = [
