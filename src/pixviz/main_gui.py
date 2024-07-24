@@ -437,6 +437,12 @@ class PixVizGUI(QMainWindow):
 
     def video_view_process(self) -> None:
         """realtime proc each frame"""
+        current_position = self.media_player.position()
+        duration = self.media_player.duration()
+        if current_position >= duration:
+            self.pause_video()
+            return
+
         self.video_view.process_frame()
 
     # ===================== #
@@ -540,7 +546,7 @@ class PixVizGUI(QMainWindow):
         self.set_position(pos)
         self.update_frame_number(pos)
 
-        if frame_number % (self.frame_rate * 10) == 0:  # render smoothly
+        if frame_number % int((self.frame_rate * 10)) == 0:  # render smoothly
             self.plot_view.update_batch_plot(self.frame_processor.proc_results, start=0, end=frame_number + 1)
 
     @pyqtSlot(dict)
@@ -550,6 +556,9 @@ class PixVizGUI(QMainWindow):
 
         :param frame_values: name:result
         """
+        # Render the final plot after processing is complete
+        self.plot_view.update_batch_plot(self.frame_processor.proc_results, start=0, end=self.total_frames)
+
         if frame_values.keys() != self.rois.keys():
             log_message(self, 'roi name index incorrect', log_type='ERROR')
 
