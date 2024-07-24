@@ -9,3 +9,4 @@ pixviz package
     pixviz.roi
     pixviz.ui_components
     pixviz.ui_logging
+    pixviz.proc
