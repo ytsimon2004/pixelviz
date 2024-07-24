@@ -1,11 +1,12 @@
 # pixviz
+![PyPI - Version](https://img.shields.io/pypi/v/pixviz)
 
 ## Pixel intensity analysis and visualization for image sequences
 
 # Installation
 
 - create conda env `conda create -n pixviz python~=3.10.0 -y`
-- install dependencies `pip install -r requirements.txt`
+- install dependencies `pip install pixviz`
 - launch GUI `python -m pixviz`
 
 
