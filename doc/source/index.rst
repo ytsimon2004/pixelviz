@@ -1,16 +1,5 @@
-.. NeuraLib documentation master file, created by
-   sphinx-quickstart on Fri Mar 29 16:52:36 2024.
-   You can adapt this file completely to your liking, but it should at least
-   contain the root `toctree` directive.
-
 Welcome to PixViz's documentation!
 ====================================
-
-
-
-.. toctree::
-   :maxdepth: 2
-   :caption: Contents:
 
 
 API Reference
@@ -22,22 +11,21 @@ API Reference
    api/pixviz.rst
 
 
+Usage
+----------
 
-
-Indices and tables
-==================
-
-* :ref:`genindex`
-* :ref:`modindex`
-* :ref:`search`
+1. Load your video by clicking ``Load Video``
+2. Drag your ROI(s) by first click ``Drag a Rect ROI`` button then drag area in video view. Press ``play`` see preview in plot view (delete by first click the roi in table, then click ``Delete ROI``), ``clear`` button is used for delete realtime plot display
+3. Click ``Process`` the evaluate all, output will be saved as json meta and npy array in the same directory of video source
+4. The data (.npy) can be reload using ``load result`` (the meta json need to be in the same directory)
 
 
 
 To be implemented
-===================
+------------------
 
 Features
----------
+^^^^^^^^^
 
 .. task-list::
    :custom:
@@ -47,9 +35,18 @@ Features
 
 
 Enhancement
-------------
+^^^^^^^^^^^^
 
 .. task-list::
    :custom:
 
    - [ ] Resize issue after load video
+
+
+
+Indices and tables
+==================
+
+* :ref:`genindex`
+* :ref:`modindex`
+* :ref:`search`

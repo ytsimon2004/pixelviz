@@ -294,7 +294,7 @@ class PixVizGUI(QMainWindow):
 
         # rois
         self.video_view.roi_complete_signal.connect(self.show_roi_settings_dialog)
-        self.video_view.roi_average_signal.connect(self.plot_view.add_realtime_plot)
+        self.video_view.roi_average_signal.connect(self.plot_view.update_realtime_plot)
         self.video_view.focusOutEvent = self._on_focus_out_event
 
     def _on_focus_out_event(self, event):
@@ -452,7 +452,7 @@ class PixVizGUI(QMainWindow):
 
         :param roi_object: ``RoiLabelObject`` to configure
         """
-        dialog = RoiSettingsDialog(roi_object, self)
+        dialog = RoiSettingsDialog(self, roi_object)
         if dialog.exec() == QDialog.DialogCode.Accepted:
             self.rois[roi_object.name] = roi_object
             self.video_view.roi_object[roi_object.name] = roi_object
@@ -539,8 +539,8 @@ class PixVizGUI(QMainWindow):
         self.set_position(pos)
         self.update_frame_number(pos)
 
-        if frame_number % 100 == 0:
-            self.plot_view.update_plot(self.frame_processor.proc_results, start=0, end=frame_number + 1)
+        if frame_number % (self.frame_rate * 10) == 0:  # render smoothly
+            self.plot_view.update_batch_plot(self.frame_processor.proc_results, start=0, end=frame_number + 1)
 
     @pyqtSlot(dict)
     def save_frame_values(self, frame_values: dict[RoiName, np.ndarray]) -> None:

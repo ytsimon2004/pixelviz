@@ -33,7 +33,12 @@ __all__ = ['FrameRateDialog',
 
 
 class FrameRateDialog(QDialog):
+    """Frame rate check Dialog"""
+
     def __init__(self, default_value: float):
+        """
+        :param default_value: default frame rate
+        """
         super().__init__()
         self.setWindowTitle("Set Sampling Rate")
         self._set_black_theme()
@@ -102,7 +107,13 @@ class RoiSettingsDialog(QDialog):
     ok_button: QPushButton
     cancel_button: QPushButton
 
-    def __init__(self, roi_object: RoiLabelObject, app: 'PixVizGUI'):
+    def __init__(self, app: 'PixVizGUI',
+                 roi_object: RoiLabelObject):
+        """
+
+        :param app: :class:`~pixviz.main_gui.PixVizGUI`
+        :param roi_object: :class:`~pixviz.roi.RoiLabelObject`
+        """
         super().__init__()
 
         self.roi_object = roi_object
@@ -186,6 +197,7 @@ class RoiSettingsDialog(QDialog):
             self.ok_button.setEnabled(True)
 
     def get_calculated_func(self) -> PIXEL_CAL_FUNCTION:
+        """get pixel intensity calculation function by button clicked"""
         if self.mean_button.isChecked():
             return 'mean'
         elif self.median_button.isChecked():
@@ -208,10 +220,10 @@ class RoiSettingsDialog(QDialog):
 
 class VideoGraphicsView(QGraphicsView):
     roi_average_signal = pyqtSignal(dict)
-    """Signal to emit the roi_name and averaged pixel value"""
+    """Signal to emit the roi_name and averaged pixel value in a single frame"""
 
     roi_complete_signal = pyqtSignal(RoiLabelObject)
-    """Signal to emit when ROI is completed"""
+    """Signal to emit when ROI selection is completed"""
 
     def __init__(self):
         super().__init__()
@@ -319,6 +331,7 @@ class VideoGraphicsView(QGraphicsView):
 
 
 class PlotView(QWidget):
+    """mpl plot view"""
     clear_button: QPushButton
     canvas: FigureCanvas
 
@@ -367,10 +380,10 @@ class PlotView(QWidget):
 
     def add_axes(self, roi_name: RoiName, **kwargs):
         """
-        add axes for a given ROI name
+        Add axes for a given ROI name
 
         :param roi_name: roi name
-        :param kwargs:
+        :param kwargs: additional arguments to ``ax.plot()``
         :return:
         """
         self._roi_lines[roi_name] = self.ax.plot([], [], label=roi_name, **kwargs)[0]
@@ -397,6 +410,7 @@ class PlotView(QWidget):
             log_message(self.app, f'{roi_name} not exist', log_type='ERROR')
 
     def clear_all(self):
+        """clear all elements in the plot view"""
         self.x_data = {}
         self.y_data = {}
 
@@ -412,15 +426,16 @@ class PlotView(QWidget):
         for name in self._roi_lines:
             self.add_axes(name)
 
-    def update_plot(self,
-                    frame_result: dict[RoiName, np.ndarray],
-                    start: int | None = None,
-                    end: int | None = None):
+    def update_batch_plot(self,
+                          frame_result: dict[RoiName, np.ndarray],
+                          start: int | None = None,
+                          end: int | None = None):
         """
+        Process batch mode update
 
-        :param frame_result: (R, F)
-        :param start:
-        :param end:
+        :param frame_result: roi:
+        :param start: starting frame number, if None then 0.
+        :param end: ending frame number, if None then all frames
         :return:
         """
         if frame_result is None:
@@ -444,8 +459,9 @@ class PlotView(QWidget):
 
         self.canvas.draw()
 
-    def add_realtime_plot(self, values: dict[RoiName, float]):
+    def update_realtime_plot(self, values: dict[RoiName, float]):
         """
+        Realtime processed update
 
         :param values: roi name: value
         :return:
@@ -482,13 +498,20 @@ class FrameProcessor(QThread):
     progress = pyqtSignal(int)
     """Frame Number"""
     results = pyqtSignal(dict)
-    """Processed Result"""
+    """Processed Result, dict[RoiName, np.ndarray]"""
 
     def __init__(self,
                  app: 'PixVizGUI',
                  cap: cv2.VideoCapture,
                  rois: dict[RoiName, RoiLabelObject],
                  view_size: tuple[int, int]):
+        """
+
+        :param app: :class:`~pixviz.main_gui.PixVizGUI`
+        :param cap: ``cv2.VideoCapture``
+        :param rois: dict of [roi_name, :class:`~pixviz.roi.RoiLabelObject`]
+        :param view_size: rescaled view size
+        """
 
         super().__init__()
         self.app = app
@@ -504,11 +527,8 @@ class FrameProcessor(QThread):
             for name in self.rois.keys()
         }
 
-    @property
-    def n_rois(self) -> int:
-        return len(self.rois)
-
     def run(self):
+        """QThread run"""
         self.cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
         for frame_number in range(self.total_frames):
 
@@ -526,6 +546,11 @@ class FrameProcessor(QThread):
         self.results.emit(self.proc_results)
 
     def process_single_frame(self) -> dict[RoiName, float]:
+        """
+        single frame calculation
+
+        :return: dict of name:processed_results
+        """
         _, frame = self.cap.read()
 
         frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)

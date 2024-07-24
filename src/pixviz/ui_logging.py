@@ -16,6 +16,14 @@ DEBUG_LOGGING = False
 
 def log_message(app: 'PixVizGUI', message: str, log_type: LOGGING_TYPE = 'INFO',
                 debug_mode: bool = DEBUG_LOGGING) -> None:
+    """
+    Logging in the message area of the GUI
+
+    :param app: :class:`~pixviz.main_gui.PixVizGUI`
+    :param message: message string
+    :param log_type: ``LOGGING_TYPE``
+    :param debug_mode: If show the debug type
+    """
     if not debug_mode and log_type == 'DEBUG':
         return
 
