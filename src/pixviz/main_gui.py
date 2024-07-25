@@ -180,8 +180,8 @@ class PixVizGUI(QMainWindow):
 
         # Table Widget for ROI Details
         self.roi_table = QTableWidget()
-        self.roi_table.setColumnCount(3)
-        self.roi_table.setHorizontalHeaderLabels(["Name", "Selection", "Function"])
+        self.roi_table.setColumnCount(4)
+        self.roi_table.setHorizontalHeaderLabels(["Name", "Selection", "Angle", "Function"])
         right_splitter.addWidget(self.roi_table)
 
         # load button
@@ -483,9 +483,13 @@ class PixVizGUI(QMainWindow):
             rect_item.setFlags(name_item.flags() & ~Qt.ItemFlag.ItemIsEditable)  # non-editable
             self.roi_table.setItem(row, 1, rect_item)
 
+            angle_item = QTableWidgetItem(str(roi.angle))
+            angle_item.setFlags(angle_item.flags() & ~Qt.ItemFlag.ItemIsEditable)  # non-editable
+            self.roi_table.setItem(row, 2, angle_item)
+
             func_item = QTableWidgetItem(roi.func)
             func_item.setFlags(name_item.flags() & ~Qt.ItemFlag.ItemIsEditable)  # non-editable
-            self.roi_table.setItem(row, 2, func_item)
+            self.roi_table.setItem(row, 3, func_item)
 
     def delete_selected_roi(self) -> None:
         """delete the selected roi using the button click"""
@@ -657,30 +661,45 @@ class PixVizGUI(QMainWindow):
 
         self.roi_table.setRowCount(len(meta))
         for i, (name, it) in enumerate(meta.items()):
+            # table
             name_item = QTableWidgetItem(name)
             name_item.setFlags(name_item.flags() & ~Qt.ItemFlag.ItemIsEditable)  # non-editable
             self.roi_table.setItem(i, 0, name_item)
 
             rect_item = QTableWidgetItem(it['item'])
-            rect_item.setFlags(name_item.flags() & ~Qt.ItemFlag.ItemIsEditable)  # non-editable
+            rect_item.setFlags(rect_item.flags() & ~Qt.ItemFlag.ItemIsEditable)  # non-editable
             self.roi_table.setItem(i, 1, rect_item)
 
-            func_item = QTableWidgetItem(it['func'])
-            func_item.setFlags(name_item.flags() & ~Qt.ItemFlag.ItemIsEditable)  # non-editable
-            self.roi_table.setItem(i, 2, func_item)
+            angle = it['angle']
+            angle_item = QTableWidgetItem(str(angle))
+            angle_item.setFlags(angle_item.flags() & ~Qt.ItemFlag.ItemIsEditable)  # non-editable
+            self.roi_table.setItem(i, 2, angle_item)
 
+
+            func_item = QTableWidgetItem(it['func'])
+            func_item.setFlags(func_item.flags() & ~Qt.ItemFlag.ItemIsEditable)  # non-editable
+            self.roi_table.setItem(i, 3, func_item)
+
+            # plot view
             self.plot_view.add_axes(name)
             d = dat[i]
             self.plot_view.x_data[name] = list(np.arange(len(d)))
             self.plot_view.y_data[name] = list(d)
 
-            #
+            # roi
             roi_object = RoiLabelObject()
             rect_values = re.findall(r"[-+]?\d*\.\d+|\d+", it['item'])[1:]
             rect_values = list(map(float, rect_values))
             rect = QRectF(*rect_values)
+
             roi_object.rect_item = QGraphicsRectItem()
             roi_object.rect_item.setRect(rect)
+
+            if angle != 0:
+                center = rect.center()
+                roi_object.rect_item.setTransformOriginPoint(center)
+                roi_object.rect_item.setRotation(angle)
+
             roi_object.rect_item.setPen(QPen(QColor('green'), 2))
 
             roi_object.set_name(name)
@@ -737,6 +756,16 @@ class PixVizGUI(QMainWindow):
                 new_rate = max(current_rate - 0.5, 0.1)  # min to 0.1x
                 self.media_player.setPlaybackRate(new_rate)
                 log_message(self, f'Playback speed decreased to {new_rate}')
+            case Qt.Key.Key_Shift:
+                self.video_view.rotation_mode = True
+            case _:
+                super().keyReleaseEvent(event)
+
+    def keyReleaseEvent(self, event: QKeyEvent) -> None:
+        if event.key() == Qt.Key.Key_Shift:
+            self.video_view.rotation_mode = False
+        else:
+            super().keyReleaseEvent(event)
 
     def main(self):
         self.show()

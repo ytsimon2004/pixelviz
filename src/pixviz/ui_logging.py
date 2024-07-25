@@ -14,7 +14,8 @@ LOGGING_TYPE = Literal['DEBUG', 'INFO', 'IO', 'WARNING', 'ERROR']
 DEBUG_LOGGING = False
 
 
-def log_message(app: 'PixVizGUI', message: str, log_type: LOGGING_TYPE = 'INFO',
+def log_message(app: 'PixVizGUI', message: str,
+                log_type: LOGGING_TYPE = 'INFO',
                 debug_mode: bool = DEBUG_LOGGING) -> None:
     """
     Logging in the message area of the GUI

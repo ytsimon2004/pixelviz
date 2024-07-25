@@ -7,7 +7,7 @@ if TYPE_CHECKING:
 import cv2
 import numpy as np
 from PyQt6.QtCore import pyqtSignal, Qt, QRectF, QThread
-from PyQt6.QtGui import QWheelEvent, QPen, QImage, QPixmap, QPainter
+from PyQt6.QtGui import QWheelEvent, QPen, QImage, QPixmap, QPainter, QKeyEvent, QTransform
 from PyQt6.QtMultimedia import QMediaPlayer
 from PyQt6.QtMultimediaWidgets import QGraphicsVideoItem
 
@@ -99,6 +99,7 @@ class RoiSettingsDialog(QDialog):
     name_label: QLabel
     name_input: QLineEdit
     selection_label: QLabel
+    selection_angle: QLabel
     method_label: QLabel
     mean_button: QRadioButton
     median_button: QRadioButton
@@ -131,8 +132,11 @@ class RoiSettingsDialog(QDialog):
         self.name_input = QLineEdit()
         self.layout.addWidget(self.name_input)
 
-        self.selection_label = QLabel(f'Selected_area: {self.roi_object.rect_item.rect()}')
+        self.selection_label = QLabel(f'Selected area: {self.roi_object.rect_item.rect()}')
         self.layout.addWidget(self.selection_label)
+
+        self.selection_angle = QLabel(f'Selected angle: {self.roi_object.angle}')
+        self.layout.addWidget(self.selection_angle)
 
         self.method_label = QLabel("Select pixel calculation method:")
         self.layout.addWidget(self.method_label)
@@ -238,6 +242,8 @@ class VideoGraphicsView(QGraphicsView):
         self.roi_start_pos = None
         self.current_roi_rect_item: QGraphicsRectItem | None = None
         self.roi_object: dict[RoiName, RoiLabelObject] = {}
+        self.rotation_mode: bool = False
+        self.roi_rotation_angle: float = 0
 
         #
         self.media_player = None
@@ -279,6 +285,7 @@ class VideoGraphicsView(QGraphicsView):
         self.scale(self.scale_factor, self.scale_factor)
 
     def mousePressEvent(self, event):
+        self.roi_rotation_angle = 0
         if self.drawing_roi:
             self.roi_start_pos = self.mapToScene(event.pos())
             if self.current_roi_rect_item is None:
@@ -291,6 +298,8 @@ class VideoGraphicsView(QGraphicsView):
             current_pos = self.mapToScene(event.pos())
             rect = QRectF(self.roi_start_pos, current_pos).normalized()
             self.current_roi_rect_item.setRect(rect)
+            if self.rotation_mode:
+                self.rotate_roi(15)
 
     def mouseReleaseEvent(self, event):
         if self.drawing_roi:
@@ -298,15 +307,43 @@ class VideoGraphicsView(QGraphicsView):
             current_pos = self.mapToScene(event.pos())
             rect = QRectF(self.roi_start_pos, current_pos).normalized()
             self.current_roi_rect_item.setRect(rect)
-            roi_object = RoiLabelObject()
+            roi_object = RoiLabelObject(self.roi_rotation_angle)
             roi_object.rect_item = self.current_roi_rect_item
             self.current_roi_rect_item = None
             self.roi_complete_signal.emit(roi_object)
+
+            # back to normal state
+            self.rotation_mode = False
+
 
     def start_drawing_roi(self):
         self.drawing_roi = True
         self.roi_start_pos = None
         self.current_roi_rect_item = None
+
+    def rotate_roi(self, angle: float):
+        if self.current_roi_rect_item:
+            rect = self.current_roi_rect_item.rect()
+            center = rect.center()
+            self.current_roi_rect_item.setTransformOriginPoint(center)
+            self.current_roi_rect_item.setRotation(self.roi_rotation_angle + angle)
+            self.roi_rotation_angle += angle
+
+        # self.roi_rotation_angle = self.roi_rotation_angle % 360
+        self.roi_rotation_angle %= 360
+
+
+    def keyPressEvent(self, event: QKeyEvent) -> None:
+        if event.key() == Qt.Key.Key_Shift:
+            self.rotation_mode = True
+        else:
+            super().keyPressEvent(event)
+
+    def keyReleaseEvent(self, event: QKeyEvent) -> None:
+        if event.key() == Qt.Key.Key_Shift:
+            self.rotation_mode = False
+        else:
+            super().keyReleaseEvent(event)
 
     def process_frame(self, calculate_func: PIXEL_CAL_FUNCTION = 'mean') -> None:
         if len(self.roi_object) != 0 and not self.drawing_roi:
@@ -566,6 +603,12 @@ class FrameProcessor(QThread):
             left = int(rect.left() * factor_width)
             right = int(rect.right() * factor_width)
             roi_frame = frame[top:bottom, left:right]
+
+            if roi.angle != 0:
+                center = ((left + right) // 2, (top + bottom) // 2)
+                M = cv2.getRotationMatrix2D(center, -roi.angle, 1.0)
+                rotated_frame = cv2.warpAffine(frame, M, (origin_width, origin_height))
+                roi_frame = rotated_frame[top:bottom, left:right]
 
             ret[roi.name] = compute_pixel_intensity(roi_frame, roi.func)
 

@@ -4,8 +4,8 @@ from typing import Literal, Any, TypeAlias
 
 import cv2
 import numpy as np
-from PyQt6.QtCore import QPointF
-from PyQt6.QtGui import QColor, QFont, QImage
+from PyQt6.QtCore import QPointF, QRectF
+from PyQt6.QtGui import QColor, QFont, QImage, QTransform
 from PyQt6.QtWidgets import QGraphicsRectItem, QGraphicsTextItem
 
 __all__ = [
@@ -57,13 +57,31 @@ class RoiLabelObject:
     data: np.ndarray | None
     """(F,)"""
 
-    def __init__(self):
+    def __init__(self, angle: float = 0):
         self.rect_item = None
         self.text = None
         self.name = None
         self.background = None
         self.func = 'mean'
         self.data = None
+
+        self.angle = angle
+
+    @property
+    def pos(self) -> QPointF:
+        item = self.rect_item
+        center = item.rect().center()
+
+        if self.angle != 0:
+            transform = QTransform()
+            transform.translate(center.x(), center.y())
+            transform.rotate(self.angle)
+            transform.translate(-center.x(), -center.y())
+            top_right = transform.map(item.rect().topRight())
+        else:
+            top_right = item.rect().topRight()
+
+        return top_right + QPointF(3, 0)  # with space
 
     def set_name(self, name: RoiName) -> None:
         """set name, text and background of the selected area
@@ -78,7 +96,7 @@ class RoiLabelObject:
         font.setPointSize(8)  # Adjust the size here
         font.setBold(True)
         text_item.setFont(font)
-        text_item.setPos(self.rect_item.rect().topRight() + QPointF(5, 0))  # with space
+        text_item.setPos(self.pos)  # with space
         self.text = text_item
         assert self.name == self.text.toPlainText()
 
@@ -88,7 +106,7 @@ class RoiLabelObject:
         background_color = QColor('green')
         background_color.setAlpha(128)
         background_rect.setBrush(background_color)
-        background_rect.setPos(text_item.pos())
+        background_rect.setPos(self.pos)
         self.background = background_rect
 
     def set_data(self, data: np.ndarray) -> None:
@@ -100,6 +118,7 @@ class RoiLabelObject:
         return dict(name=self.name,
                     index=idx,
                     item=str(self.rect_item.rect()),
+                    angle=self.angle,
                     func=self.func)
 
 
