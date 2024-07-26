@@ -4,7 +4,7 @@ from typing import Literal, Any, TypeAlias
 
 import cv2
 import numpy as np
-from PyQt6.QtCore import QPointF, QRectF
+from PyQt6.QtCore import QPointF
 from PyQt6.QtGui import QColor, QFont, QImage, QTransform
 from PyQt6.QtWidgets import QGraphicsRectItem, QGraphicsTextItem
 

@@ -1,10 +1,7 @@
 import datetime
-from typing import Literal, TYPE_CHECKING
+from typing import Literal
 
 from PyQt6.QtGui import QTextCursor
-
-if TYPE_CHECKING:
-    from .main_gui import PixVizGUI
 
 __all__ = ['LOGGING_TYPE',
            'DEBUG_LOGGING',
@@ -14,17 +11,19 @@ LOGGING_TYPE = Literal['DEBUG', 'INFO', 'IO', 'WARNING', 'ERROR']
 DEBUG_LOGGING = False
 
 
-def log_message(app: 'PixVizGUI', message: str,
+def log_message(message: str,
                 log_type: LOGGING_TYPE = 'INFO',
                 debug_mode: bool = DEBUG_LOGGING) -> None:
     """
     Logging in the message area of the GUI
 
-    :param app: :class:`~pixviz.main_gui.PixVizGUI`
     :param message: message string
     :param log_type: ``LOGGING_TYPE``
     :param debug_mode: If show the debug type
     """
+    from .main_gui import PixVizGUI
+    app = PixVizGUI.INSTANCE
+
     if not debug_mode and log_type == 'DEBUG':
         return
 
