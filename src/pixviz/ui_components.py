@@ -6,14 +6,14 @@ if TYPE_CHECKING:
 
 import cv2
 import numpy as np
-from PyQt6.QtCore import pyqtSignal, Qt, QRectF, QThread
+from PyQt6.QtCore import pyqtSignal, Qt, QRectF, QThread, QLineF, QPointF
 from PyQt6.QtGui import QWheelEvent, QPen, QImage, QPixmap, QPainter
 from PyQt6.QtMultimedia import QMediaPlayer
 from PyQt6.QtMultimediaWidgets import QGraphicsVideoItem
 
 from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QLabel, QLineEdit, QHBoxLayout, QPushButton, QRadioButton,
-    QButtonGroup, QGraphicsView, QGraphicsScene, QGraphicsRectItem, QWidget
+    QButtonGroup, QGraphicsView, QGraphicsScene, QGraphicsRectItem, QWidget, QGraphicsItem, QGraphicsEllipseItem
 )
 
 from matplotlib.backends.backend_qt import NavigationToolbar2QT
@@ -235,9 +235,13 @@ class VideoGraphicsView(QGraphicsView):
 
         # ROI
         self.drawing_roi: bool = False  # isDrawing flag
+        self.moving_roi: bool = False
+        self.rotating_roi: bool = False
         self.roi_start_pos = None
+        self.rotation_start_pos: QPointF | None = None
+        self.move_start_pos: QPointF | None = None
         self.current_roi_rect_item: QGraphicsRectItem | None = None
-        self.roi_object: dict[RoiName, RoiLabelObject] = {}
+        self.roi_object: dict[RoiName, RoiLabelObject] = {}  # set after roi dialog
 
         #
         self.media_player = None
@@ -255,6 +259,8 @@ class VideoGraphicsView(QGraphicsView):
         self.frame_label_widget.setLayout(self.frame_label_layout)
         self.frame_label_widget.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         self.scene().addWidget(self.frame_label_widget)
+
+        self.setDragMode(QGraphicsView.DragMode.NoDrag)
 
     def set_media_player(self, media_player: QMediaPlayer) -> None:
         media_player.setVideoOutput(self.video_item)
@@ -285,12 +291,50 @@ class VideoGraphicsView(QGraphicsView):
                 self.current_roi_rect_item = QGraphicsRectItem()
                 self.current_roi_rect_item.setPen(QPen(Qt.GlobalColor.red, 2))
                 self.scene().addItem(self.current_roi_rect_item)
+        else:
+            # roi rotation and moving mode
+            item = self.itemAt(event.pos())
+            if isinstance(item, QGraphicsEllipseItem):
+                self.rotating_roi = True
+                self.rotation_start_pos = self.mapToScene(event.pos())
+                self.current_roi_rect_item = next(
+                    (roi.rect_item for roi in self.roi_object.values() if roi.rotation_handle == item), None)
+            elif isinstance(item, QGraphicsRectItem) and item in [roi.rect_item for roi in self.roi_object.values()]:
+                self.moving_roi = True
+                self.move_start_pos = self.mapToScene(event.pos())
+                self.current_roi_rect_item = item
+            else:
+                super().mousePressEvent(event)
 
     def mouseMoveEvent(self, event):
         if self.drawing_roi and self.roi_start_pos:
             current_pos = self.mapToScene(event.pos())
             rect = QRectF(self.roi_start_pos, current_pos).normalized()
             self.current_roi_rect_item.setRect(rect)
+        elif self.rotating_roi and self.current_roi_rect_item:
+            roi_object = next((roi for roi in self.roi_object.values() if roi.rect_item == self.current_roi_rect_item),
+                              None)
+            if roi_object:
+                current_pos = self.mapToScene(event.pos())
+                center = self.current_roi_rect_item.rect().center()
+                initial_line = QLineF(center, self.rotation_start_pos)
+                current_line = QLineF(center, current_pos)
+                angle = current_line.angleTo(initial_line)
+                roi_object.angle += angle
+                self.rotation_start_pos = current_pos
+                roi_object.update_rotation()
+
+        elif self.moving_roi and self.current_roi_rect_item:
+            roi_object = next((roi for roi in self.roi_object.values() if roi.rect_item == self.current_roi_rect_item),
+                              None)
+            if roi_object:
+                current_pos = self.mapToScene(event.pos())
+                delta = current_pos - self.move_start_pos
+                self.move_start_pos = current_pos
+                roi_object.update_position()
+                roi_object.rect_item.moveBy(delta.x(), delta.y())
+        else:
+            super().mouseMoveEvent(event)
 
     def mouseReleaseEvent(self, event):
         if self.drawing_roi:
@@ -300,8 +344,17 @@ class VideoGraphicsView(QGraphicsView):
             self.current_roi_rect_item.setRect(rect)
             roi_object = RoiLabelObject()
             roi_object.rect_item = self.current_roi_rect_item
-            self.current_roi_rect_item = None
+            roi_object.update_position()  # Ensure correct position update
+            self.scene().addItem(roi_object.rotation_handle)
+            self.roi_object[roi_object.name] = roi_object
             self.roi_complete_signal.emit(roi_object)
+        elif self.rotating_roi:
+            self.rotating_roi = False
+        elif self.moving_roi:
+            self.moving_roi = False
+        else:
+            super().mouseReleaseEvent(event)
+
 
     def start_drawing_roi(self):
         self.drawing_roi = True

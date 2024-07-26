@@ -6,7 +6,7 @@ import cv2
 import numpy as np
 from PyQt6.QtCore import QPointF
 from PyQt6.QtGui import QColor, QFont, QImage
-from PyQt6.QtWidgets import QGraphicsRectItem, QGraphicsTextItem
+from PyQt6.QtWidgets import QGraphicsRectItem, QGraphicsTextItem, QGraphicsEllipseItem
 
 __all__ = [
     'RoiName',
@@ -15,6 +15,8 @@ __all__ = [
     'RoiLabelObject',
     'PixVizResult',
 ]
+
+from pixviz.ui_logging import log_message
 
 RoiName: TypeAlias = str
 
@@ -46,9 +48,9 @@ def compute_pixel_intensity(image: QImage | np.ndarray,
 
 
 class RoiLabelObject:
-    rect_item: QGraphicsRectItem | None
+    rect_item: QGraphicsRectItem
     """set after selection"""
-    text: QGraphicsTextItem | None
+    text: QGraphicsTextItem
     """set after roi dialog"""
     background: QGraphicsRectItem | None
     """set after roi dialog"""
@@ -57,13 +59,20 @@ class RoiLabelObject:
     data: np.ndarray | None
     """(F,)"""
 
+    rotation_handle: QGraphicsEllipseItem
+    angle: float
+
     def __init__(self):
-        self.rect_item = None
-        self.text = None
+        self.rect_item = QGraphicsRectItem()
+        self.text = QGraphicsTextItem()
         self.name = None
-        self.background = None
+        self.background = QGraphicsRectItem()
         self.func = 'mean'
         self.data = None
+
+        # rotate
+        self.angle = 0
+        self.rotation_handle = QGraphicsEllipseItem(-5, -5, 10, 10)
 
     def set_name(self, name: RoiName) -> None:
         """set name, text and background of the selected area
@@ -91,9 +100,36 @@ class RoiLabelObject:
         background_rect.setPos(text_item.pos())
         self.background = background_rect
 
+        # Set rotation handle position
+        handle_pos = self.rect_item.rect().topLeft() + QPointF(self.rect_item.rect().width() / 2, -20)
+        self.rotation_handle.setPos(handle_pos)
+        self.rotation_handle.setBrush(QColor('red'))
+
     def set_data(self, data: np.ndarray) -> None:
         """set calculated pixel intensity data"""
         self.data = data
+
+    def update_rotation(self):
+        if self.rect_item:
+            center = self.rect_item.rect().center()
+            transform = self.rect_item.transform()
+            transform.reset()
+            transform.translate(center.x(), center.y())
+            transform.rotate(self.angle)
+            log_message(f'ROTATE: {self.angle}')
+            transform.translate(-center.x(), -center.y())
+            self.rect_item.setTransform(transform)
+
+        self.update_position()
+
+    def update_position(self):
+        if self.text:
+            self.text.setPos(self.rect_item.mapToScene(self.rect_item.rect().topRight()) + QPointF(5, 0))
+        if self.background:
+            self.background.setPos(self.text.pos())
+        if self.rotation_handle:
+            handle_pos = self.rect_item.mapToScene(self.rect_item.rect().center()) + QPointF(0, 10)
+            self.rotation_handle.setPos(handle_pos)
 
     def to_meta(self, idx: int) -> dict[str, Any]:
         """to meta for saving"""
@@ -101,6 +137,13 @@ class RoiLabelObject:
                     index=idx,
                     item=str(self.rect_item.rect()),
                     func=self.func)
+
+    def asdict(self) -> dict[str, Any]:
+        return dict(
+            name=self.name,
+            rect=self.rect_item.rect(),
+            angle=self.angle
+        )
 
 
 # =========== #
