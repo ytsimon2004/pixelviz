@@ -191,7 +191,7 @@ class RoiSettingsDialog(QDialog):
         if text in self.app.rois:
             self.name_input.setStyleSheet("QLineEdit {background-color: red;}")
             self.ok_button.setEnabled(False)
-            log_message(self.app, f'{text} exists', log_type='ERROR')
+            log_message(f'{text} exists', log_type='ERROR')
         else:
             self.name_input.setStyleSheet("QLineEdit {background-color: black;}")
             self.ok_button.setEnabled(True)
@@ -207,7 +207,7 @@ class RoiSettingsDialog(QDialog):
         """action of clicking `OK`"""
         self.roi_object.func = self.get_calculated_func()
         self.roi_object.set_name(self.name_input.text())
-        log_message(self.app, f"ROI name: {self.roi_object.name}, Calculation method: {self.roi_object.func}")
+        log_message(f"ROI name: {self.roi_object.name}, Calculation method: {self.roi_object.func}")
         self.accept()
 
     def _reject(self):
@@ -335,10 +335,9 @@ class PlotView(QWidget):
     clear_button: QPushButton
     canvas: FigureCanvas
 
-    def __init__(self, app: 'PixVizGUI', *args, **kwargs):
+    def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
-        self.app = app
         self.setup_layout()
         self.setup_controller()
 
@@ -407,7 +406,7 @@ class PlotView(QWidget):
             self.x_data[roi_name] = []
             self.y_data[roi_name] = []
         except KeyError:
-            log_message(self.app, f'{roi_name} not exist', log_type='ERROR')
+            log_message(f'{roi_name} not exist', log_type='ERROR')
 
     def clear_all(self):
         """clear all elements in the plot view"""
@@ -501,7 +500,6 @@ class FrameProcessor(QThread):
     """Processed Result, dict[RoiName, np.ndarray]"""
 
     def __init__(self,
-                 app: 'PixVizGUI',
                  cap: cv2.VideoCapture,
                  rois: dict[RoiName, RoiLabelObject],
                  view_size: tuple[int, int]):
@@ -514,7 +512,6 @@ class FrameProcessor(QThread):
         """
 
         super().__init__()
-        self.app = app
         self.cap = cap
         self.rois = rois
 
@@ -540,7 +537,7 @@ class FrameProcessor(QThread):
                 self.progress.emit(frame_number)
 
             except Exception as e:
-                log_message(self.app, f'Frame {frame_number} generated an exception: {e}', log_type='ERROR')
+                log_message(f'Frame {frame_number} generated an exception: {e}', log_type='ERROR')
                 traceback.print_exc()
 
         self.results.emit(self.proc_results)
