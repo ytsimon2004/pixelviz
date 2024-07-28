@@ -466,7 +466,7 @@ class PixVizGUI(QMainWindow):
         dialog = RoiSettingsDialog(self, roi_object)
         if dialog.exec() == QDialog.DialogCode.Accepted:
             self.rois[roi_object.name] = roi_object
-            self.video_view.roi_object[roi_object.name] = roi_object
+            self.video_view.rois[roi_object.name] = roi_object
             self.update_roi_table()
 
             roi_object.rect_item.setPen(QPen(QColor('green'), 2))
@@ -662,7 +662,7 @@ class PixVizGUI(QMainWindow):
         # clear existing ROIs from the scene and plot
         self.plot_view.clear_all()
         self.rois.clear()
-        self.video_view.roi_object.clear()
+        self.video_view.rois.clear()
 
         self.roi_table.setRowCount(len(meta))
         for i, (name, it) in enumerate(meta.items()):
@@ -699,7 +699,7 @@ class PixVizGUI(QMainWindow):
             self.video_view.scene().addItem(roi_object.rect_item)
             self.video_view.scene().addItem(roi_object.background)
             self.video_view.scene().addItem(roi_object.text)
-            self.video_view.roi_object[name] = roi_object
+            self.video_view.rois[name] = roi_object
 
         self._disable_button_reload()
 

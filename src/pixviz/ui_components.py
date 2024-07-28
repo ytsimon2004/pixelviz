@@ -244,7 +244,7 @@ class VideoGraphicsView(QGraphicsView):
         self.rotation_start_pos: QPointF | None = None
         self.move_start_pos: QPointF | None = None
         self.current_roi_rect_item: QGraphicsRectItem | None = None
-        self.roi_object: dict[RoiName, RoiLabelObject] = {}  # set after roi dialog
+        self.rois: dict[RoiName, RoiLabelObject] = {}  # set after roi dialog
 
         #
         self.media_player = None
@@ -301,8 +301,8 @@ class VideoGraphicsView(QGraphicsView):
                 self.rotating_roi = True
                 self.rotation_start_pos = self.mapToScene(event.pos())
                 self.current_roi_rect_item = next(
-                    (roi.rect_item for roi in self.roi_object.values() if roi.rotation_handle == item), None)
-            elif isinstance(item, QGraphicsRectItem) and item in [roi.rect_item for roi in self.roi_object.values()]:
+                    (roi.rect_item for roi in self.rois.values() if roi.rotation_handle == item), None)
+            elif isinstance(item, QGraphicsRectItem) and item in [roi.rect_item for roi in self.rois.values()]:
                 self.moving_roi = True
                 self.move_start_pos = self.mapToScene(event.pos())
                 self.current_roi_rect_item = item
@@ -313,7 +313,7 @@ class VideoGraphicsView(QGraphicsView):
         """mouse movement for `drag`, `rotate`, `move` modes"""
         if self.current_roi_rect_item:
             roi_object = next((
-                roi for roi in self.roi_object.values()
+                roi for roi in self.rois.values()
                 if roi.rect_item == self.current_roi_rect_item
             ), None)
         else:
@@ -361,7 +361,7 @@ class VideoGraphicsView(QGraphicsView):
             roi_object.rect_item = self.current_roi_rect_item
             roi_object.update_element_position()  # Ensure correct position update
             self.scene().addItem(roi_object.rotation_handle)
-            self.roi_object[roi_object.name] = roi_object
+            self.rois[roi_object.name] = roi_object
             self.roi_complete_signal.emit(roi_object)
         elif self.rotating_roi:
             self.rotating_roi = False
@@ -375,26 +375,10 @@ class VideoGraphicsView(QGraphicsView):
         self.roi_start_pos = None
         self.current_roi_rect_item = None
 
-    def process_frame(self, calculate_func: PIXEL_CAL_FUNCTION = 'mean') -> None:
-        if len(self.roi_object) != 0 and not self.drawing_roi:
-            image = self.grab_frame()
-            if image:
-                signal = {}
-                for name, roi in self.roi_object.items():
-                    roi_rect = roi.rect_item.rect().toRect()
-                    cropped_image = image.copy(roi_rect)
-                    dat = compute_pixel_intensity(cropped_image, calculate_func)
-                    signal[name] = dat
-
-                self.roi_average_signal.emit(signal)
-
-    def grab_frame(self) -> QImage:
-        """Grab the current frame from the video_item"""
-        pixmap = QPixmap(self.video_item.boundingRect().size().toSize())
-        painter = QPainter(pixmap)
-        self.video_item.paint(painter, None, None)
-        painter.end()
-        return pixmap.toImage()
+    def process_frame(self) -> None:
+        if len(self.rois) != 0 and not self.drawing_roi:
+            signal = process_single_frame(self.rois, self.app.cap, self.app.video_item_size)
+            self.roi_average_signal.emit(signal)
 
 
 class PlotView(QWidget):
@@ -597,7 +581,7 @@ class FrameProcessor(QThread):
         for frame_number in range(self.total_frames):
 
             try:
-                result = self.process_single_frame()
+                result = process_single_frame(self.rois, self.cap, self.view_size)
                 for name, val in result.items():
                     self.proc_results[name][frame_number] = val
 
@@ -609,37 +593,42 @@ class FrameProcessor(QThread):
 
         self.results.emit(self.proc_results)
 
-    def process_single_frame(self) -> dict[RoiName, float]:
-        """
-        single frame calculation (used for batch run)
 
-        :return: dict of name:processed_results
-        """
-        _, frame = self.cap.read()
+def process_single_frame(roi_dict: dict[RoiName, RoiLabelObject],
+                         cap: cv2.VideoCapture,
+                         video_item_size: tuple[int, int]) -> dict[RoiName, float]:
+    """
+    single frame calculation (used for batch run)
 
-        frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        origin_height, origin_width, *_ = frame.shape
-        factor_width = origin_width / self.view_size[0]
-        factor_height = origin_height / self.view_size[1]
+    :param roi_dict:
+    :param cap:
+    :param video_item_size:
+    :return: dict of name:processed_results
+    """
+    _, frame = cap.read()
 
-        ret = {}
-        for i, (name, roi) in enumerate(self.rois.items()):
+    frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+    origin_height, origin_width, *_ = frame.shape
+    factor_width = origin_width / video_item_size[0]
+    factor_height = origin_height / video_item_size[1]
 
-            rect = roi.rect_item.rect()
-            top = int(rect.top() * factor_height)
-            bottom = int(rect.bottom() * factor_height)
-            left = int(rect.left() * factor_width)
-            right = int(rect.right() * factor_width)
+    ret = {}
+    for i, (name, roi) in enumerate(roi_dict.items()):
 
-            if roi.angle != 0:
-                center = (int((left + right) / 2), int((top + bottom) / 2))
-                rotation_matrix = cv2.getRotationMatrix2D(center, roi.angle, 1.0)
-                rotated_frame = cv2.warpAffine(frame, rotation_matrix, (origin_width, origin_height))
-                roi_frame = rotated_frame[top:bottom, left:right]
-            else:
-                roi_frame = frame[top:bottom, left:right]
+        rect = roi.rect_item.rect()
+        top = int(rect.top() * factor_height)
+        bottom = int(rect.bottom() * factor_height)
+        left = int(rect.left() * factor_width)
+        right = int(rect.right() * factor_width)
 
-            np.save('.test.npy', roi_frame)
-            ret[roi.name] = compute_pixel_intensity(roi_frame, roi.func)
+        if roi.angle != 0:
+            center = (int((left + right) / 2), int((top + bottom) / 2))
+            rotation_matrix = cv2.getRotationMatrix2D(center, roi.angle, 1.0)
+            rotated_frame = cv2.warpAffine(frame, rotation_matrix, (origin_width, origin_height))
+            roi_frame = rotated_frame[top:bottom, left:right]
+        else:
+            roi_frame = frame[top:bottom, left:right]
 
-        return ret
+        ret[roi.name] = compute_pixel_intensity(roi_frame, roi.func)
+
+    return ret
