@@ -378,7 +378,8 @@ class VideoGraphicsView(QGraphicsView):
     def process_frame(self) -> None:
         if len(self.rois) != 0 and not self.drawing_roi:
             signal = process_single_frame(self.rois, self.app.cap, self.app.video_item_size)
-            self.roi_average_signal.emit(signal)
+            if signal is not None:
+                self.roi_average_signal.emit(signal)
 
 
 class PlotView(QWidget):
@@ -596,23 +597,26 @@ class FrameProcessor(QThread):
 
 def process_single_frame(roi_dict: dict[RoiName, RoiLabelObject],
                          cap: cv2.VideoCapture,
-                         video_item_size: tuple[int, int]) -> dict[RoiName, float]:
+                         video_item_size: tuple[int, int]) -> dict[RoiName, float] | None:
     """
     single frame calculation (used for batch run)
 
-    :param roi_dict:
-    :param cap:
+    :param roi_dict: dict of ``RoiName``:``RoiLabelObject``
+    :param cap: video capture
     :param video_item_size:
     :return: dict of name:processed_results
     """
-    _, frame = cap.read()
+    ret, frame = cap.read()
+
+    if not ret:
+        return
 
     frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
     origin_height, origin_width, *_ = frame.shape
     factor_width = origin_width / video_item_size[0]
     factor_height = origin_height / video_item_size[1]
 
-    ret = {}
+    sig = {}
     for i, (name, roi) in enumerate(roi_dict.items()):
 
         rect = roi.rect_item.rect()
@@ -629,6 +633,6 @@ def process_single_frame(roi_dict: dict[RoiName, RoiLabelObject],
         else:
             roi_frame = frame[top:bottom, left:right]
 
-        ret[roi.name] = compute_pixel_intensity(roi_frame, roi.func)
+        sig[roi.name] = compute_pixel_intensity(roi_frame, roi.func)
 
-    return ret
+    return sig

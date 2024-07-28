@@ -120,6 +120,9 @@ class RoiLabelObject:
         """set calculated pixel intensity data"""
         self.data = data
 
+    def rotate(self, deg: float) -> None:
+        self.angle = deg
+
     def update_rotation(self):
         self.angle %= 360
         if self.rect_item:
@@ -147,6 +150,7 @@ class RoiLabelObject:
         return dict(name=self.name,
                     index=idx,
                     item=str(self.rect_item.rect()),
+                    angle=self.angle,
                     func=self.func)
 
     def asdict(self) -> dict[str, Any]:

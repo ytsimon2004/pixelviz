@@ -674,9 +674,15 @@ class PixVizGUI(QMainWindow):
             rect_item.setFlags(name_item.flags() & ~Qt.ItemFlag.ItemIsEditable)  # non-editable
             self.roi_table.setItem(i, 1, rect_item)
 
-            func_item = QTableWidgetItem(it['func'])
+            angle = it['angle']
+            angle_item = QTableWidgetItem(str(angle))
+            angle_item.setFlags(angle_item.flags() & ~Qt.ItemFlag.ItemIsEditable)  # non-editable
+            self.roi_table.setItem(i, 2, angle_item)
+
+            func = it['func']
+            func_item = QTableWidgetItem(func)
             func_item.setFlags(name_item.flags() & ~Qt.ItemFlag.ItemIsEditable)  # non-editable
-            self.roi_table.setItem(i, 2, func_item)
+            self.roi_table.setItem(i, 3, func_item)
 
             self.plot_view.add_axes(name)
             d = dat[i]
@@ -692,8 +698,10 @@ class PixVizGUI(QMainWindow):
             roi_object.rect_item.setRect(rect)
             roi_object.rect_item.setPen(QPen(QColor('green'), 2))
 
+            roi_object.rotate(angle)
+            roi_object.update_rotation()
             roi_object.set_name(name)
-            roi_object.func = it['func']
+            roi_object.func = func
             self.rois[name] = roi_object
 
             self.video_view.scene().addItem(roi_object.rect_item)
