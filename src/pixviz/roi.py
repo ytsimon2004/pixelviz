@@ -16,8 +16,6 @@ __all__ = [
     'PixVizResult',
 ]
 
-from pixviz.ui_logging import log_message
-
 RoiName: TypeAlias = str
 
 PIXEL_CAL_FUNCTION = Literal['mean', 'median']
@@ -74,6 +72,12 @@ class RoiLabelObject:
         self.angle = 0
         self.rotation_handle = QGraphicsEllipseItem(-5, -5, 10, 10)
 
+    @property
+    def rect_repr(self) -> str:
+        """rect coordinates"""
+        cord = self.rect_item.rect().getCoords()
+        return str([round(c, 1) for c in cord])
+
     def set_name(self, name: RoiName) -> None:
         """set name, text and background of the selected area
 
@@ -101,7 +105,7 @@ class RoiLabelObject:
         self.background = background_rect
 
         # Set rotation handle position
-        handle_pos = self.rect_item.rect().topLeft() + QPointF(self.rect_item.rect().width() / 2, -20)
+        handle_pos = self.rect_item.mapToScene(self.rect_item.rect().center())
         self.rotation_handle.setPos(handle_pos)
         self.rotation_handle.setBrush(QColor('red'))
 
@@ -110,25 +114,25 @@ class RoiLabelObject:
         self.data = data
 
     def update_rotation(self):
+        self.angle %= 360
         if self.rect_item:
             center = self.rect_item.rect().center()
             transform = self.rect_item.transform()
             transform.reset()
             transform.translate(center.x(), center.y())
             transform.rotate(self.angle)
-            log_message(f'ROTATE: {self.angle}')
             transform.translate(-center.x(), -center.y())
             self.rect_item.setTransform(transform)
 
-        self.update_position()
+        self.update_element_position()
 
-    def update_position(self):
+    def update_element_position(self):
         if self.text:
             self.text.setPos(self.rect_item.mapToScene(self.rect_item.rect().topRight()) + QPointF(5, 0))
         if self.background:
             self.background.setPos(self.text.pos())
         if self.rotation_handle:
-            handle_pos = self.rect_item.mapToScene(self.rect_item.rect().center()) + QPointF(0, 10)
+            handle_pos = self.rect_item.mapToScene(self.rect_item.rect().center())
             self.rotation_handle.setPos(handle_pos)
 
     def to_meta(self, idx: int) -> dict[str, Any]:

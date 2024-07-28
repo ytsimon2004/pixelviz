@@ -76,8 +76,6 @@ class PixVizGUI(QMainWindow):
         super().__init__()
 
         PixVizGUI.INSTANCE = self
-        print(f'{self=}')
-        print(f'#####{PixVizGUI=}')
 
         # set after load
         self.video_path: str | None = None
@@ -131,7 +129,7 @@ class PixVizGUI(QMainWindow):
         main_splitter.addWidget(right_splitter)
 
         # media
-        self.video_view = VideoGraphicsView()
+        self.video_view = VideoGraphicsView(self)
         left_splitter.addWidget(self.video_view)
 
         self.media_player = QMediaPlayer(self)
@@ -186,8 +184,8 @@ class PixVizGUI(QMainWindow):
 
         # Table Widget for ROI Details
         self.roi_table = QTableWidget()
-        self.roi_table.setColumnCount(3)
-        self.roi_table.setHorizontalHeaderLabels(["Name", "Selection", "Function"])
+        self.roi_table.setColumnCount(4)
+        self.roi_table.setHorizontalHeaderLabels(["Name", "Selection", "Angle", "Function"])
         right_splitter.addWidget(self.roi_table)
 
         # load button
@@ -485,13 +483,17 @@ class PixVizGUI(QMainWindow):
             name_item.setFlags(name_item.flags() & ~Qt.ItemFlag.ItemIsEditable)  # non-editable
             self.roi_table.setItem(row, 0, name_item)
 
-            rect_item = QTableWidgetItem(str(roi.rect_item.rect()))
+            rect_item = QTableWidgetItem(roi.rect_repr)
             rect_item.setFlags(name_item.flags() & ~Qt.ItemFlag.ItemIsEditable)  # non-editable
             self.roi_table.setItem(row, 1, rect_item)
 
+            angle_item = QTableWidgetItem(str(roi.angle))
+            angle_item.setFlags(angle_item.flags() & ~Qt.ItemFlag.ItemIsEditable)  # non-editable
+            self.roi_table.setItem(row, 2, angle_item)
+
             func_item = QTableWidgetItem(roi.func)
             func_item.setFlags(name_item.flags() & ~Qt.ItemFlag.ItemIsEditable)  # non-editable
-            self.roi_table.setItem(row, 2, func_item)
+            self.roi_table.setItem(row, 3, func_item)
 
     def delete_selected_roi(self) -> None:
         """delete the selected roi using the button click"""
@@ -509,6 +511,7 @@ class PixVizGUI(QMainWindow):
             self.video_view.scene().removeItem(roi_obj.rect_item)
             self.video_view.scene().removeItem(roi_obj.text)
             self.video_view.scene().removeItem(roi_obj.background)
+            self.video_view.scene().removeItem(roi_obj.rotation_handle)
 
         #
         self.plot_view.delete_roi_line(roi_name)

@@ -131,7 +131,7 @@ class RoiSettingsDialog(QDialog):
         self.name_input = QLineEdit()
         self.layout.addWidget(self.name_input)
 
-        self.selection_label = QLabel(f'Selected_area: {self.roi_object.rect_item.rect()}')
+        self.selection_label = QLabel(f'Selected_area: {self.roi_object.rect_repr}')
         self.layout.addWidget(self.selection_label)
 
         self.method_label = QLabel("Select pixel calculation method:")
@@ -225,9 +225,10 @@ class VideoGraphicsView(QGraphicsView):
     roi_complete_signal = pyqtSignal(RoiLabelObject)
     """Signal to emit when ROI selection is completed"""
 
-    def __init__(self):
+    def __init__(self, app: 'PixVizGUI'):
         super().__init__()
 
+        self.app = app
         self.scale_factor: float = 1.0
         self.setScene(QGraphicsScene(self))
         self.video_item = QGraphicsVideoItem()
@@ -237,7 +238,7 @@ class VideoGraphicsView(QGraphicsView):
         self.drawing_roi: bool = False  # isDrawing flag
         self.moving_roi: bool = False
         self.rotating_roi: bool = False
-        self.roi_start_pos = None
+        self.roi_start_pos: QPointF | None = None
         self.rotation_start_pos: QPointF | None = None
         self.move_start_pos: QPointF | None = None
         self.current_roi_rect_item: QGraphicsRectItem | None = None
@@ -307,14 +308,21 @@ class VideoGraphicsView(QGraphicsView):
                 super().mousePressEvent(event)
 
     def mouseMoveEvent(self, event):
-        if self.drawing_roi and self.roi_start_pos:
-            current_pos = self.mapToScene(event.pos())
-            rect = QRectF(self.roi_start_pos, current_pos).normalized()
-            self.current_roi_rect_item.setRect(rect)
-        elif self.rotating_roi and self.current_roi_rect_item:
-            roi_object = next((roi for roi in self.roi_object.values() if roi.rect_item == self.current_roi_rect_item),
-                              None)
-            if roi_object:
+        """mouse movement for `drag`, `rotate`, `move` modes"""
+        if self.current_roi_rect_item:
+            roi_object = next((
+                roi for roi in self.roi_object.values()
+                if roi.rect_item == self.current_roi_rect_item
+            ), None)
+        else:
+            roi_object = None
+
+        match (self.drawing_roi, self.rotating_roi, self.moving_roi):
+            case (True, _, _) if self.roi_start_pos is not None:
+                current_pos = self.mapToScene(event.pos())
+                rect = QRectF(self.roi_start_pos, current_pos).normalized()
+                self.current_roi_rect_item.setRect(rect)
+            case (_, True, _) if roi_object is not None:
                 current_pos = self.mapToScene(event.pos())
                 center = self.current_roi_rect_item.rect().center()
                 initial_line = QLineF(center, self.rotation_start_pos)
@@ -323,18 +331,23 @@ class VideoGraphicsView(QGraphicsView):
                 roi_object.angle += angle
                 self.rotation_start_pos = current_pos
                 roi_object.update_rotation()
-
-        elif self.moving_roi and self.current_roi_rect_item:
-            roi_object = next((roi for roi in self.roi_object.values() if roi.rect_item == self.current_roi_rect_item),
-                              None)
-            if roi_object:
+                self.app.update_roi_table()
+            case (_, _, True) if roi_object is not None:
                 current_pos = self.mapToScene(event.pos())
                 delta = current_pos - self.move_start_pos
                 self.move_start_pos = current_pos
-                roi_object.update_position()
-                roi_object.rect_item.moveBy(delta.x(), delta.y())
-        else:
-            super().mouseMoveEvent(event)
+                self.move_roi_rect(roi_object, delta)
+                roi_object.update_rotation()
+                roi_object.update_element_position()
+                self.app.update_roi_table()
+            case _:
+                super().mouseMoveEvent(event)
+
+    @staticmethod
+    def move_roi_rect(roi_object, delta):
+        rect = roi_object.rect_item.rect()
+        new_rect = rect.translated(delta)
+        roi_object.rect_item.setRect(new_rect)
 
     def mouseReleaseEvent(self, event):
         if self.drawing_roi:
@@ -344,7 +357,7 @@ class VideoGraphicsView(QGraphicsView):
             self.current_roi_rect_item.setRect(rect)
             roi_object = RoiLabelObject()
             roi_object.rect_item = self.current_roi_rect_item
-            roi_object.update_position()  # Ensure correct position update
+            roi_object.update_element_position()  # Ensure correct position update
             self.scene().addItem(roi_object.rotation_handle)
             self.roi_object[roi_object.name] = roi_object
             self.roi_complete_signal.emit(roi_object)
@@ -354,7 +367,6 @@ class VideoGraphicsView(QGraphicsView):
             self.moving_roi = False
         else:
             super().mouseReleaseEvent(event)
-
 
     def start_drawing_roi(self):
         self.drawing_roi = True
