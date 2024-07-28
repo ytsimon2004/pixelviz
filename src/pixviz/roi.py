@@ -3,6 +3,7 @@ from pathlib import Path
 from typing import Literal, Any, TypeAlias
 
 import cv2
+import matplotlib.pyplot as plt
 import numpy as np
 from PyQt6.QtCore import QPointF
 from PyQt6.QtGui import QColor, QFont, QImage
@@ -22,12 +23,14 @@ PIXEL_CAL_FUNCTION = Literal['mean', 'median']
 
 
 def compute_pixel_intensity(image: QImage | np.ndarray,
-                            func: PIXEL_CAL_FUNCTION) -> float:
+                            func: PIXEL_CAL_FUNCTION,
+                            debug_save: bool = False) -> float:
     """
     Compute the selected area pixel intensity
 
     :param image: image object, either ``PyQt6.QtGui.QImage`` or image ``numpy.array``
     :param func: ``PIXEL_CAL_FUNCTION`` {'mean', 'median'}
+    :param debug_save: debug save cropped image
     :return:
     """
     if isinstance(image, QImage):
@@ -37,6 +40,10 @@ def compute_pixel_intensity(image: QImage | np.ndarray,
         img = image
     else:
         raise TypeError('')
+
+    if debug_save:
+        plt.imshow(img, origin='upper')
+        plt.show()
 
     img = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
     if func == 'mean':

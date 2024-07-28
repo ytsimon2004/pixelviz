@@ -1,13 +1,15 @@
 import traceback
 from typing import TYPE_CHECKING
 
+from matplotlib import pyplot as plt
+
 if TYPE_CHECKING:
     from .main_gui import PixVizGUI
 
 import cv2
 import numpy as np
 from PyQt6.QtCore import pyqtSignal, Qt, QRectF, QThread, QLineF, QPointF
-from PyQt6.QtGui import QWheelEvent, QPen, QImage, QPixmap, QPainter
+from PyQt6.QtGui import QWheelEvent, QPen, QImage, QPixmap, QPainter, QTransform
 from PyQt6.QtMultimedia import QMediaPlayer
 from PyQt6.QtMultimediaWidgets import QGraphicsVideoItem
 
@@ -609,7 +611,7 @@ class FrameProcessor(QThread):
 
     def process_single_frame(self) -> dict[RoiName, float]:
         """
-        single frame calculation
+        single frame calculation (used for batch run)
 
         :return: dict of name:processed_results
         """
@@ -622,13 +624,22 @@ class FrameProcessor(QThread):
 
         ret = {}
         for i, (name, roi) in enumerate(self.rois.items()):
+
             rect = roi.rect_item.rect()
             top = int(rect.top() * factor_height)
             bottom = int(rect.bottom() * factor_height)
             left = int(rect.left() * factor_width)
             right = int(rect.right() * factor_width)
-            roi_frame = frame[top:bottom, left:right]
 
+            if roi.angle != 0:
+                center = (int((left + right) / 2), int((top + bottom) / 2))
+                rotation_matrix = cv2.getRotationMatrix2D(center, roi.angle, 1.0)
+                rotated_frame = cv2.warpAffine(frame, rotation_matrix, (origin_width, origin_height))
+                roi_frame = rotated_frame[top:bottom, left:right]
+            else:
+                roi_frame = frame[top:bottom, left:right]
+
+            np.save('.test.npy', roi_frame)
             ret[roi.name] = compute_pixel_intensity(roi_frame, roi.func)
 
         return ret
