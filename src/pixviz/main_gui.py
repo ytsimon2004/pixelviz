@@ -698,9 +698,9 @@ class PixVizGUI(QMainWindow):
             roi_object.rect_item.setRect(rect)
             roi_object.rect_item.setPen(QPen(QColor('green'), 2))
 
+            roi_object.set_name(name)
             roi_object.rotate(angle)
             roi_object.update_rotation()
-            roi_object.set_name(name)
             roi_object.func = func
             self.rois[name] = roi_object
 

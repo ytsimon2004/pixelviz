@@ -1,21 +1,19 @@
 import traceback
 from typing import TYPE_CHECKING
 
-from matplotlib import pyplot as plt
-
 if TYPE_CHECKING:
     from .main_gui import PixVizGUI
 
 import cv2
 import numpy as np
 from PyQt6.QtCore import pyqtSignal, Qt, QRectF, QThread, QLineF, QPointF
-from PyQt6.QtGui import QWheelEvent, QPen, QImage, QPixmap, QPainter, QTransform
+from PyQt6.QtGui import QWheelEvent, QPen
 from PyQt6.QtMultimedia import QMediaPlayer
 from PyQt6.QtMultimediaWidgets import QGraphicsVideoItem
 
 from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QLabel, QLineEdit, QHBoxLayout, QPushButton, QRadioButton,
-    QButtonGroup, QGraphicsView, QGraphicsScene, QGraphicsRectItem, QWidget, QGraphicsItem, QGraphicsEllipseItem
+    QButtonGroup, QGraphicsView, QGraphicsScene, QGraphicsRectItem, QWidget, QGraphicsEllipseItem
 )
 
 from matplotlib.backends.backend_qt import NavigationToolbar2QT
@@ -330,7 +328,7 @@ class VideoGraphicsView(QGraphicsView):
                 initial_line = QLineF(center, self.rotation_start_pos)
                 current_line = QLineF(center, current_pos)
                 angle = current_line.angleTo(initial_line)
-                roi_object.angle += angle
+                roi_object.rotate(angle)
                 self.rotation_start_pos = current_pos
                 roi_object.update_rotation()
                 self.app.update_roi_table()

@@ -121,7 +121,7 @@ class RoiLabelObject:
         self.data = data
 
     def rotate(self, deg: float) -> None:
-        self.angle = deg
+        self.angle += deg
 
     def update_rotation(self):
         self.angle %= 360
