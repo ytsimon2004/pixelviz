@@ -15,9 +15,10 @@ Usage
 ----------
 
 1. Load your video by clicking ``Load Video``
-2. Drag your ROI(s) by first click ``Drag a Rect ROI`` button then drag area in video view. Press ``play`` see preview in plot view (delete by first click the roi in table, then click ``Delete ROI``), ``clear`` button is used for delete realtime plot display
-3. Click ``Process`` the evaluate all, output will be saved as json meta and npy array in the same directory of video source
-4. The data (.npy) can be reload using ``load result`` (the meta json need to be in the same directory)
+2. Drag your ROI(s) by first click ``Drag a Rect ROI`` button then drag area in video view. Drag your ROI(s) by first click `Drag a Rect ROI` button then drag area in video view (left click inside the area for `moving`, left click the round red button for `rotation`)
+3. Press ``play`` see preview in plot view (delete by first click the roi in table, then click ``Delete ROI``), ``clear`` button is used for delete realtime plot display
+4. Click ``Process`` the evaluate all, output will be saved as json meta and npy array in the same directory of video source
+5. The data (.npy) can be reload using ``load result`` (the meta json need to be in the same directory)
 
 
 
